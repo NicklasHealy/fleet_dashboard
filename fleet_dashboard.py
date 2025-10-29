@@ -389,14 +389,32 @@ def main():
     )
 
     # Sidebar for file paths
-    st.sidebar.header("Filindstillinger")
-    data_path = st.sidebar.text_input(
-        "Data", value="Data.csv"
+    st.sidebar.header("Filupload")
+    uploaded_data = st.sidebar.file_uploader(
+        "Upload datafil (CSV)",
+        type=["csv"],
+        help="Vælg din datafil med kørselsdata"
     )
-        
-    data = pd.read_csv(data_path)
 
-    df_changes_adresses = pd.read_excel('Ændre adresser.xlsx')
+    # --- Upload af ændringsfil (Excel) ---
+    uploaded_changes = st.sidebar.file_uploader(
+        "Upload ændringsfil (Excel)",
+        type=["xlsx"],
+        help="Vælg filen med ændrede adresser"
+    )
+
+    # --- Indlæs data hvis uploadet ---
+    if uploaded_data is not None:
+        data = pd.read_csv(uploaded_data)
+        st.success("✅ Datafil indlæst")
+    else:
+        st.warning("Upload en datafil for at fortsætte.")
+
+    if uploaded_changes is not None:
+        df_changes_adresses = pd.read_excel(uploaded_changes)
+        st.success("✅ Ændringsfil indlæst")
+    else:
+        st.info("Upload evt. en ændringsfil med adresser.")
     
     dict_fra_excel = dict(zip(df_changes_adresses.iloc[:, 0], df_changes_adresses.iloc[:, 1]))
     data['start_lokation'] = data['start_lokation'].replace(dict_fra_excel)
