@@ -414,7 +414,7 @@ def main():
         # Gem datafil, når den uploades
         if uploaded_data is not None:
             st.session_state["data"] = pd.read_csv(uploaded_data)
-            st.success("✅ Datafil indlæst!")
+            st.success("Datafil indlæst!")
 
         # Gem ændringsfil, hvis uploadet
         if uploaded_changes is not None:
