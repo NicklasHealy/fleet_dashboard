@@ -388,37 +388,59 @@ def main():
         """
     )
 
-    # Sidebar for file paths
-    st.sidebar.header("Filupload")
-    uploaded_data = st.sidebar.file_uploader(
-        "Upload datafil (CSV)",
-        type=["csv"],
-        help="Vælg din datafil med kørselsdata"
-    )
 
-    # --- Upload af ændringsfil (Excel) ---
-    uploaded_changes = st.sidebar.file_uploader(
-        "Upload ændringsfil (Excel)",
-        type=["xlsx"],
-        help="Vælg filen med ændrede adresser"
-    )
+    # --- Session state til at huske upload-status ---
+    if "data" not in st.session_state:
+        st.session_state["data"] = None
+    if "changes" not in st.session_state:
+        st.session_state["changes"] = None
 
-    # --- Indlæs data hvis uploadet ---
-    if uploaded_data is not None:
-        data = pd.read_csv(uploaded_data)
-        st.success("✅ Datafil indlæst")
+    # --- Hvis datafilen ikke er uploadet ---
+    if st.session_state["data"] is None:
+        st.sidebar.info("Upload din datafil (påkrævet) for at starte analysen.")
+
+        uploaded_data = st.sidebar.file_uploader(
+            "Upload datafil (CSV) – påkrævet",
+            type=["csv"],
+            key="data_uploader"
+        )
+
+        uploaded_changes = st.sidebar.file_uploader(
+            "Upload ændringsfil (Excel) – valgfrit",
+            type=["xlsx"],
+            key="changes_uploader"
+        )
+
+        # Gem datafil, når den uploades
+        if uploaded_data is not None:
+            st.session_state["data"] = pd.read_csv(uploaded_data)
+            st.success("✅ Datafil indlæst!")
+
+        # Gem ændringsfil, hvis uploadet
+        if uploaded_changes is not None:
+            st.session_state["changes"] = pd.read_excel(uploaded_changes)
+            st.info("📘 Ændringsfil indlæst (valgfri).")
     else:
-        st.warning("Upload en datafil for at fortsætte.")
+        # --- Når datafil er uploadet ---
+        st.sidebar.info("Datafil er indlæst.")
+        if st.sidebar.button("Upload ny datafil"):
+            st.session_state["data"] = None
+            st.session_state["changes"] = None
+            st.rerun()
 
-    if uploaded_changes is not None:
-        df_changes_adresses = pd.read_excel(uploaded_changes)
-        st.success("✅ Ændringsfil indlæst")
+    # --- Hovedindhold ---
+    if st.session_state["data"] is not None:
+        data = st.session_state["data"]
+
+        # Ændringsfil kun hvis den findes
+        if st.session_state["changes"] is not None:
+            df_changes_adresses = st.session_state["changes"]
+            dict_fra_excel = dict(zip(df_changes_adresses.iloc[:, 0], df_changes_adresses.iloc[:, 1]))
+            data['start_lokation'] = data['start_lokation'].replace(dict_fra_excel)
+            data['end_lokation'] = data['end_lokation'].replace(dict_fra_excel)
     else:
-        st.info("Upload evt. en ændringsfil med adresser.")
-    
-    dict_fra_excel = dict(zip(df_changes_adresses.iloc[:, 0], df_changes_adresses.iloc[:, 1]))
-    data['start_lokation'] = data['start_lokation'].replace(dict_fra_excel)
-    data['end_lokation'] = data['end_lokation'].replace(dict_fra_excel)
+        st.warning("Upload en datafil i sidepanelet for at fortsætte.")
+
 
     # Build lists for filters
     all_lokations = sorted(
