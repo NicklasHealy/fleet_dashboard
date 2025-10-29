@@ -388,7 +388,7 @@ def main():
         """
     )
 
-
+    data = None
     # --- Session state til at huske upload-status ---
     if "data" not in st.session_state:
         st.session_state["data"] = None
@@ -414,12 +414,11 @@ def main():
         # Gem datafil, når den uploades
         if uploaded_data is not None:
             st.session_state["data"] = pd.read_csv(uploaded_data)
-            st.success("Datafil indlæst!")
 
         # Gem ændringsfil, hvis uploadet
         if uploaded_changes is not None:
             st.session_state["changes"] = pd.read_excel(uploaded_changes)
-            st.info("📘 Ændringsfil indlæst (valgfri).")
+            st.info("Ændringsfil indlæst (valgfri).")
     else:
         # --- Når datafil er uploadet ---
         st.sidebar.info("Datafil er indlæst.")
@@ -441,460 +440,122 @@ def main():
     else:
         st.warning("Upload en datafil i sidepanelet for at fortsætte.")
 
-
-    # Build lists for filters
-    all_lokations = sorted(
-        [x for x in data["start_lokation"].dropna().unique().tolist() if x]
-    )
-
-    all_kilder = sorted(
-        [x for x in data["kilde"].dropna().unique().tolist() if x]
-    )
-
-    all_vehicles = sorted(
-        [x for x in data["license_plate"].dropna().unique().tolist() if x]
-    )
-    all_employees = sorted(
-        [x for x in data["employee"].dropna().unique().tolist() if x]
-    )
-
-
-    # Sidebar filters
-    st.sidebar.header("Filtre")
-    selected_lokations = st.sidebar.multiselect(
-        "Vælg lokationer", options=all_lokations, default=[]
-    )
-    
-    selected_kilder = st.sidebar.multiselect(
-        "Vælg kilde", options=all_kilder, default=[]
-    )
-
-    selected_vehicles = st.sidebar.multiselect(
-        "Vælg biler", options=all_vehicles, default=[]
-    )
-    selected_employees = st.sidebar.multiselect(
-        "Vælg medarbejdere", options=all_employees, default=[]
-    )
-
-    
-    data['date'] = pd.to_datetime(data['date'], errors='coerce')
-    num_workdays = data.loc[data["date"].dt.weekday < 5, "date"].nunique()
-
-    # Konverter og filtrer datoer
-    data['date'] = pd.to_datetime(data['date'], errors='coerce').dt.date
-    data = data.dropna(subset=['date'])
-
-    # Date range filter
-    min_date = data["date"].min()
-    max_date = data["date"].max()
-
-    
-    date_range = st.sidebar.date_input(
-        "Dato-interval", value=(min_date, max_date), min_value=min_date, max_value=max_date
-    )
-    start_date, end_date = None, None
-    if isinstance(date_range, tuple) and len(date_range) == 2:
-        start_date, end_date = date_range
-    elif isinstance(date_range, datetime.date):
-        start_date = end_date = date_range
-
-    # Filter data
-    filtered = filter_data(
-        data,
-        lokationer=selected_lokations or None,
-        vehicles=selected_vehicles or None,
-        kilde=selected_kilder or None,
-        employees=selected_employees or None,
-        start_date=start_date,
-        end_date=end_date,
-    )
-
-    # Compute metrics for filtered data
-    overview = compute_overview_metrics(filtered,num_workdays)
-    private_vs = compute_private_vs_municipal(filtered)
-    emp_private = compute_employee_private_usage(filtered)
-    daily_util = compute_daily_utilization(filtered)
-
-    NUMBERS_OF_VEHICELS = filtered["license_plate"].nunique()
-
-    # Tabs for different analyses
-    tabs = st.tabs(
-        [
-            "Oversigt",
-            "Lokationer & køretøjstyper",
-            "Privat vs kommunal",
-            "Egen bil pr. medarbejder",
-            "Udnyttelsesgrad over tid",
-        ]
-    )
-
-    # Overview tab
-    with tabs[0]:
-        st.header("Oversigt")
-        st.markdown(
-            """
-            Her kan du se de samlede nøgletal for de valgte filtre.  "Trips"
-            angiver antal ture, "km" er de samlede kilometre, og
-            "udnyttelsesgrad" viser forholdet mellem faktisk køretid og den
-            teoretisk tilgængelige arbejdstid.
-            """
+    if data is not None:
+        # Build lists for filters
+        all_lokations = sorted(
+            [x for x in data["start_lokation"].dropna().unique().tolist() if x]
         )
 
-        # Display key metrics
-        st.subheader("Nøgletal for valgt periode/filtre")
+        all_kilder = sorted(
+            [x for x in data["kilde"].dropna().unique().tolist() if x]
+        )
 
-        # KPI: unikke køretøjer, lokationer, samlede km, ture, gns. udnyttelse (8–17)
-       
-        unique_vehicles = filtered['license_plate'].nunique(dropna=True)
-        unique_locations = overview["start_lokation"].nunique(dropna=True)
-        total_km = overview["total_km"].sum()
-        total_trips = overview["trips"].sum()
+        all_vehicles = sorted(
+            [x for x in data["license_plate"].dropna().unique().tolist() if x]
+        )
+        all_employees = sorted(
+            [x for x in data["employee"].dropna().unique().tolist() if x]
+        )
+
+
+        # Sidebar filters
+        st.sidebar.header("Filtre")
+        selected_lokations = st.sidebar.multiselect(
+            "Vælg lokationer", options=all_lokations, default=[]
+        )
         
-
-        # 1) Læs interval fra UI
-        selected_min, selected_max = date_range  # fra din st.sidebar.date_input
-
-        # 2) Sørg for, at "Dato" er datetime64 og normaliseret til dato (uden tid)
-        daily_util["Dato"] = pd.to_datetime(daily_util["Dato"]).dt.normalize()
-        daily_util = daily_util[daily_util["Timer_total"] > 0]
-
-        # 3) Filtrér data til valgt interval
-        mask = (daily_util["Dato"] >= pd.to_datetime(selected_min)) & (daily_util["Dato"] <= pd.to_datetime(selected_max))
-        daily_util_f = daily_util.loc[mask].copy()
-
-        # 4) Aggreger timer pr. dag
-        daily_util_agg = (
-            daily_util_f.groupby("Dato", dropna=False)
-            .agg(
-                hours_total=("Timer_total", "sum"),
-                hours_08_17=("Timer_08_17", "sum"),
-            )
-            .reset_index()
+        selected_kilder = st.sidebar.multiselect(
+            "Vælg kilde", options=all_kilder, default=[]
         )
 
-        # 5) Lav en komplet kalender med alle datoer i intervallet
-        all_dates = pd.DataFrame({"Dato": pd.date_range(pd.to_datetime(selected_min), pd.to_datetime(selected_max), freq="D")})
-
-        # 6) Merge for at sikre alle datoer er med, og udfyld manglende med 0
-        daily_util_agg = (
-            all_dates.merge(daily_util_agg, on="Dato", how="left")
-            .fillna({"hours_total": 0.0, "hours_08_17": 0.0})
+        selected_vehicles = st.sidebar.multiselect(
+            "Vælg biler", options=all_vehicles, default=[]
+        )
+        selected_employees = st.sidebar.multiselect(
+            "Vælg medarbejdere", options=all_employees, default=[]
         )
 
-        # 7) Beregn gennemsnit pr. køretøj (global variabel)
-        #    OBS: Tjek stavning – du brugte "NUMBERS_OF_VEHICELS". Brug "NUMBERS_OF_VEHICLES".
-        daily_util_agg["avg_hours_total"] = daily_util_agg["hours_total"] / daily_util['license_plate'].nunique()
-        daily_util_agg["avg_hours_08_17"] = daily_util_agg["hours_08_17"] / daily_util['license_plate'].nunique()
+        
+        data['date'] = pd.to_datetime(data['date'], errors='coerce')
+        num_workdays = data.loc[data["date"].dt.weekday < 5, "date"].nunique()
 
-        # 9) Udnyttelsesgrader (pr. køretøj)
-        #    Fordi "avg_hours_*" allerede er pr. bil, skal der KUN divideres med WORKDAY_HOURS.
-        daily_util_agg["udnyttelse_pct_08_17"] = (daily_util_agg["avg_hours_08_17"] / WORKDAY_HOURS).clip(upper=1.0) * 100.0
+        # Konverter og filtrer datoer
+        data['date'] = pd.to_datetime(data['date'], errors='coerce').dt.date
+        data = data.dropna(subset=['date'])
 
-        # Beregn gennemsnit og 7-dages glidende gennemsnit
-        gns_udnyttelse = daily_util_agg["udnyttelse_pct_08_17"].mean()
+        # Date range filter
+        min_date = data["date"].min()
+        max_date = data["date"].max()
 
-        c1, c2, c3, c4, c5 = st.columns(5)
-        c1.metric("Antal køretøjer", f"{unique_vehicles:,}")
-        c2.metric("Lokationer", f"{unique_locations:,}")
-        c3.metric("Samlede km", f"{total_km:,.0f}".replace(",", "."))
-        c4.metric("Ture", f"{total_trips:,.0f}".replace(",", "."))
-        c5.metric("Gns. udnyttelse pr. dag(8–17)", f"{gns_udnyttelse:.1f}%")
-
-        # Display metrics as table
-
-        st.subheader("")
-        st.markdown(
-            """
-            I tabellen nedenfor vises nøgletal pr. lokation og køretøjstype.
-            """
+        
+        date_range = st.sidebar.date_input(
+            "Dato-interval", value=(min_date, max_date), min_value=min_date, max_value=max_date
         )
-        st.dataframe(
-            overview.rename(
-                columns={
-                    "start_lokation": "Lokation",
-                    "vehicels_type": "Køretøjstype",
-                    "trips": "Ture",
-                    "total_km": "Kilometre",
-                    "total_duration": "Timer (total)",
-                    "unique_vehicles": "Antal biler",
-                    "avg_trips_per_day": "Ture/dag",
-                    "avg_km_per_day": "Km/dag",
-                    "utilisation": "Udnyttelsesgrad pr. bil (%)",
-                }
-            ),
-            use_container_width=True,
-            hide_index=True,
-            column_config={'num_workdays': None},
-        )
-        # Chart: average trips per day by location and vehicle type
-        if not overview.empty:
-            fig1 = px.bar(
-                overview,
-                x="start_lokation",
-                y="avg_trips_per_day",
-                color="vehicels_type",
-                barmode="group",
-                labels={
-                    "start_lokation": "Lokation",
-                    "avg_trips_per_day": "Gennemsnitlige ture pr. dag",
-                    "vehicel_type": "Køretøjstype",
-                },
-                title="Gennemsnitlige ture pr. dag pr. lokation og køretøjstype",
-            )
-            st.plotly_chart(fig1, use_container_width=True)
+        start_date, end_date = None, None
+        if isinstance(date_range, tuple) and len(date_range) == 2:
+            start_date, end_date = date_range
+        elif isinstance(date_range, datetime.date):
+            start_date = end_date = date_range
 
-    # Location & vehicle type tab
-    with tabs[1]:
-        st.header("Lokationer & køretøj")
-
-        st.markdown("Nøgletal pr. lokation og køretøjstype.")
-        st.dataframe(overview, use_container_width=True)
-        # Chart: utilisation by location and vehicle type
-        if not overview.empty:
-            fig2 = px.bar(
-                overview,
-                x="start_lokation",
-                y="unique_vehicles",
-                color="vehicels_type",
-                barmode="group",
-                labels={
-                    "start_lokation": "Lokation",
-                    "unique_vehicles": "Antal køretøjer",
-                    "vehicels_type": "Køretøjstype",
-                },
-                title="Antal køretøjer pr. lokation og køretøjstype",
-            )
-            st.plotly_chart(fig2, use_container_width=True)
-
-        st.subheader("Hvor køretøjerne hører hjemme")
-
-        # Forudsætninger (justér disse tre variabler så de peger på dine allerede filtrerede dataframes):
-        # df_trips_filtered: dit nuværende trips-df efter brugerens filtre i dashboardet
-        # df_vehicles_filtered: (valgfrit) køretøjs-oversigt efter samme filtre (hvis du har en sådan)
-        # Hvis du ikke har en separat køretøjs-DF, sæt df_vehicles_filtered = None
-
-        home_df = compute_home_locations(
-            df_trips=filtered,
-            df_vehicles=filtered,  # eller None
-            col_vehicle="license_plate",
-            col_from_addr="start_lokation",
-            col_home_in_vehicles="start_lokation",      # ret hvis din kolonne hedder noget andet
-            col_is_start_from_home="start_lokation"    # ret/lad blive hvis den findes i dine trips
+        # Filter data
+        filtered = filter_data(
+            data,
+            lokationer=selected_lokations or None,
+            vehicles=selected_vehicles or None,
+            kilde=selected_kilder or None,
+            employees=selected_employees or None,
+            start_date=start_date,
+            end_date=end_date,
         )
 
-        loc_agg = summarize_locations(home_df, col_vehicle="license_plate")
+        # Compute metrics for filtered data
+        overview = compute_overview_metrics(filtered,num_workdays)
+        private_vs = compute_private_vs_municipal(filtered)
+        emp_private = compute_employee_private_usage(filtered)
+        daily_util = compute_daily_utilization(filtered)
 
-        # Top-metrics
-        c1, c2 = st.columns(2)
-        total_locs = int(loc_agg["Home location"].nunique()) if not loc_agg.empty else 0
-        total_veh  = int(home_df["license_plate"].nunique()) if not home_df.empty else 0
-        with c1:
-            st.metric("Antal lokationer", total_locs)
-        with c2:
-            st.metric("Antal køretøjer", total_veh)
+        NUMBERS_OF_VEHICELS = filtered["license_plate"].nunique()
 
-        # Bar chart: antal køretøjer pr. lokation
-        if not loc_agg.empty:
-            fig_loc = px.bar(
-                loc_agg,
-                x="Home location",
-                y="Vehicles",
-                title="Køretøjer pr. lokation",
-            )
-            fig_loc.update_layout(xaxis_title="Lokation", yaxis_title="Antal køretøjer")
-            st.plotly_chart(fig_loc, use_container_width=True)
-        else:
-            st.info("Ingen lokationer fundet for det aktuelle filter.")
-
-        # Tabel: lokation, antal, liste af reg.nr.
-        with st.expander("Se tabel: Lokation → antal køretøjer → reg.nr."):
-            st.dataframe(
-                loc_agg.rename(columns={
-                    "Home location": "Lokation",
-                    "Vehicles": "Antal køretøjer",
-                    "Registreringsnumre": "Registreringsnumre"
-                }),
-                use_container_width=True
-            )
-
-        # Tabel: køretøj → home location
-        with st.expander("Se tabel: Køretøj → Home location"):
-            st.dataframe(
-                home_df.rename(columns={
-                    "license_plate": "Køretøj",
-                    "Home location": "Home location"
-                }).sort_values("Køretøj"),
-                use_container_width=True
-            )
-
-
-    # Private vs municipal tab
-    with tabs[2]:
-        st.header("Privat vs kommunal")
-        st.markdown(
-            "Denne fane viser, hvor mange ture og kilometre der er kørt i private biler" \
-            "sammenlignet med kommunale personbiler pr. dag og lokation."
-        )
-        # Aggregate totals across all days for display
-        agg_private = private_vs.groupby(["start_lokation", "private"]).agg(
-            trips=("trips", "sum"), km=("km", "sum")
-        ).reset_index()
-        # Replace boolean with string for readability
-        agg_private["Biltype"] = agg_private["private"].map(
-            {True: "Privat", False: "Kommunal"}
+        # Tabs for different analyses
+        tabs = st.tabs(
+            [
+                "Oversigt",
+                "Lokationer & køretøjstyper",
+                "Privat vs kommunal",
+                "Egen bil pr. medarbejder",
+                "Udnyttelsesgrad over tid",
+            ]
         )
 
-
-        st.dataframe(
-            agg_private.rename(columns={"start_lokation": "Lokation", "trips" : "Ture"})[
-                ["Lokation", "Biltype", "Ture", "km"]
-            ],
-            use_container_width=True, hide_index=True
-        )
-
-
-        # Pie charts summarising private vs municipal usage
-        col1, col2 = st.columns(2, gap="medium")
-
-        color_map = {"Privat": "#636EFA", "Kommunal": "#EF553B"}
-        category_order = {"Biltype": ["Privat", "Kommunal"]}
-
-        total_trips = agg_private["trips"].sum()
-        if total_trips > 0:
-            fig3 = px.pie(
-                agg_private,
-                names="Biltype",
-                values="trips",
-                title="Andel af ture: privat vs kommunal",
-                color="Biltype",
-                color_discrete_map=color_map,
-                category_orders=category_order,
+        # Overview tab
+        with tabs[0]:
+            st.header("Oversigt")
+            st.markdown(
+                """
+                Her kan du se de samlede nøgletal for de valgte filtre.  "Trips"
+                angiver antal ture, "km" er de samlede kilometre, og
+                "udnyttelsesgrad" viser forholdet mellem faktisk køretid og den
+                teoretisk tilgængelige arbejdstid.
+                """
             )
-            with col1:
-                st.plotly_chart(fig3, use_container_width=True)
 
-        total_km = agg_private["km"].sum()
-        if total_km > 0:
-            fig4 = px.pie(
-                agg_private,
-                names="Biltype",
-                values="km",
-                title="Andel af kilometre: privat vs kommunal",
-                color="Biltype",
-                color_discrete_map=color_map,
-                category_orders=category_order,
-            )
-            with col2:
-                st.plotly_chart(fig4, use_container_width=True)
+            # Display key metrics
+            st.subheader("Nøgletal for valgt periode/filtre")
 
-        # 100%-stablet søjlediagram pr. lokation
-        if not agg_private.empty:
-            # Fjern lokationer med kun 1 tur (uanset biltype)
-            trips_per_loc = agg_private.groupby("start_lokation")["trips"].sum()
-            valid_locs = trips_per_loc[trips_per_loc > 1].index
-            agg_filtered = agg_private[agg_private["start_lokation"].isin(valid_locs)]
-
-            if not agg_filtered.empty:
-                # Beregn andel pr. lokation
-                pct_df = (
-                    agg_filtered.groupby("start_lokation")
-                    .apply(lambda g: g.assign(
-                        andel=g["trips"] / g["trips"].sum() * 100
-                    ))
-                    .reset_index(drop=True)
-                )
-
-                # Tilføj tekstlabel med både procent og antal ture
-                pct_df["label"] = pct_df.apply(
-                    lambda r: f"{r['andel']:.1f}% ({int(r['trips'])} ture)", axis=1
-                )
-
-                pct_df.sort_values(by=["start_lokation"], inplace=True)
-
-                fig_pct = px.bar(
-                    pct_df,
-                    x="start_lokation",
-                    y="andel",
-                    color="Biltype",
-                    barmode="stack",
-                    text="label",  # bruger den nye labelkolonne
-                    color_discrete_map=color_map,
-                    category_orders=category_order,
-                    labels={
-                        "start_lokation": "Lokation",
-                        "andel": "Andel af ture (%)",
-                        "Biltype": "Biltype"
-                    },
-                    title="Andel af ture (Privat vs Kommunal) pr. lokation – 100 % stablet",
-                )
-
-                fig_pct.update_traces(textposition="inside", textfont_size=11)
-                fig_pct.update_layout(yaxis=dict(range=[0, 100]))
-                st.plotly_chart(fig_pct, use_container_width=True)
-            else:
-                st.info("Ingen lokationer med mere end 1 tur at vise.")
-
-
-
-
-    # Employee private usage tab
-    with tabs[3]:
-        st.header("Egen bil pr. medarbejder")
-        st.markdown("Total kørsel i egen bil pr. medarbejder i den valgte periode.")
-        if emp_private.empty:
-            st.info("Ingen registrerede ture i privat bil for de valgte filtre.")
-        else:
-            st.dataframe(
-                emp_private.rename(columns={
-                    "employee": "Medarbejder",
-                    "trips": "Ture",
-                    "km": "Kilometre",
-                    "duration_hours": "Timer",
-                }),
-                use_container_width=True,
-            )
-            fig5 = px.bar(
-                emp_private,
-                x="employee",
-                y="km",
-                labels={"employee": "Medarbejder", "km": "Kilometre"},
-                title="Kilometre i egen bil pr. medarbejder",
-            )
-            st.plotly_chart(fig5, use_container_width=True)
-
-    # Utilisation over time tab
-    with tabs[4]:
-        st.header("Udnyttelsesgrad over tid")
-        st.markdown(
-            "Gennemsnitlig udnyttelsesgrad pr. dag på tværs af alle valgte biler og lokationer."
-        )
-        if daily_util.empty:
-            st.info("Ingen data til rådighed for de valgte filtre.")
-        else:
+            # KPI: unikke køretøjer, lokationer, samlede km, ture, gns. udnyttelse (8–17)
+        
+            unique_vehicles = filtered['license_plate'].nunique(dropna=True)
+            unique_locations = overview["start_lokation"].nunique(dropna=True)
+            total_km = overview["total_km"].sum()
+            total_trips = overview["trips"].sum()
             
-            # Lokalt filter for denne side
-            st.markdown("**Filtrering på biltype (kun for denne visning)**")
 
-            available_types = sorted([x for x in filtered["vehicels_type"].dropna().unique()])
-            selected_types = st.multiselect(
-                "Vælg køretøjstype(r)",
-                options=available_types,
-                default=available_types,
-                key="vehicletype_filter_utilisation"
-            )
-
-            # Filtrer data kun for denne side
-            filtered_util = filtered[filtered["vehicels_type"].isin(selected_types)].copy()
-            
-            daily_util = compute_daily_utilization(filtered_util)
-
-            NUMBERS_OF_VEHICELS = daily_util['license_plate'].nunique()
-            
             # 1) Læs interval fra UI
             selected_min, selected_max = date_range  # fra din st.sidebar.date_input
 
             # 2) Sørg for, at "Dato" er datetime64 og normaliseret til dato (uden tid)
             daily_util["Dato"] = pd.to_datetime(daily_util["Dato"]).dt.normalize()
+            daily_util = daily_util[daily_util["Timer_total"] > 0]
 
             # 3) Filtrér data til valgt interval
             mask = (daily_util["Dato"] >= pd.to_datetime(selected_min)) & (daily_util["Dato"] <= pd.to_datetime(selected_max))
@@ -921,179 +582,517 @@ def main():
 
             # 7) Beregn gennemsnit pr. køretøj (global variabel)
             #    OBS: Tjek stavning – du brugte "NUMBERS_OF_VEHICELS". Brug "NUMBERS_OF_VEHICLES".
-            daily_util_agg["avg_hours_total"] = daily_util_agg["hours_total"] / NUMBERS_OF_VEHICELS
-            daily_util_agg["avg_hours_08_17"] = daily_util_agg["hours_08_17"] / NUMBERS_OF_VEHICELS
-
-            # 8) Til reference: antal biler
-            daily_util_agg["Antal biler"] = NUMBERS_OF_VEHICELS
+            daily_util_agg["avg_hours_total"] = daily_util_agg["hours_total"] / daily_util['license_plate'].nunique()
+            daily_util_agg["avg_hours_08_17"] = daily_util_agg["hours_08_17"] / daily_util['license_plate'].nunique()
 
             # 9) Udnyttelsesgrader (pr. køretøj)
             #    Fordi "avg_hours_*" allerede er pr. bil, skal der KUN divideres med WORKDAY_HOURS.
             daily_util_agg["udnyttelse_pct_08_17"] = (daily_util_agg["avg_hours_08_17"] / WORKDAY_HOURS).clip(upper=1.0) * 100.0
 
             # Beregn gennemsnit og 7-dages glidende gennemsnit
-            mean_value = daily_util_agg["udnyttelse_pct_08_17"].mean()
+            gns_udnyttelse = daily_util_agg["udnyttelse_pct_08_17"].mean()
 
-            st.markdown(f"Gennemsnitlig udnyttelsesgrad (08–17) i perioden: **{mean_value:.1f}%**")
+            c1, c2, c3, c4, c5 = st.columns(5)
+            c1.metric("Antal køretøjer", f"{unique_vehicles:,}")
+            c2.metric("Lokationer", f"{unique_locations:,}")
+            c3.metric("Samlede km", f"{total_km:,.0f}".replace(",", "."))
+            c4.metric("Ture", f"{total_trips:,.0f}".replace(",", "."))
+            c5.metric("Gns. udnyttelse pr. dag(8–17)", f"{gns_udnyttelse:.1f}%")
 
-            daily_util_agg["rolling_mean_7d"] = (
-                daily_util_agg["udnyttelse_pct_08_17"]
-                .rolling(window=7, min_periods=1)
-                .mean()
-)
+            # Display metrics as table
 
-            # Linjediagram: Udnyttelsesgrad over tid (08-17)
-            st.subheader("Udnyttelsesgrad over tid (08–17)")
-            fig6 = px.line(
-                daily_util_agg,
-                x="Dato",
-                y="udnyttelse_pct_08_17",
-                labels={"udnyttelse_pct_08_17": "Udnyttelsesgrad (%)", "Dato": "Dato"},
-                title="Gennemsnitlig udnyttelsesgrad over tid (08–17)"
+            st.subheader("")
+            st.markdown(
+                """
+                I tabellen nedenfor vises nøgletal pr. lokation og køretøjstype.
+                """
             )
-
-            # Tilføj 7-dages glidende gennemsnit
-            fig6.add_scatter(
-                x=daily_util_agg["Dato"],
-                y=daily_util_agg["rolling_mean_7d"],
-                mode="lines",
-                name="7-dages gennemsnit",
-                line=dict(color="orange", width=3, dash="dash")
+            st.dataframe(
+                overview.rename(
+                    columns={
+                        "start_lokation": "Lokation",
+                        "vehicels_type": "Køretøjstype",
+                        "trips": "Ture",
+                        "total_km": "Kilometre",
+                        "total_duration": "Timer (total)",
+                        "unique_vehicles": "Antal biler",
+                        "avg_trips_per_day": "Ture/dag",
+                        "avg_km_per_day": "Km/dag",
+                        "utilisation": "Udnyttelsesgrad pr. bil (%)",
+                    }
+                ),
+                use_container_width=True,
+                hide_index=True,
+                column_config={'num_workdays': None},
             )
-
-            # Tilføj en vandret linje for globalt gennemsnit
-            fig6.add_hline(
-                y=mean_value,
-                line_dash="dot",
-                line_color="green",
-                name="Gennemsnit",
-                annotation_text=f"Gennemsnit: {mean_value:.1f}%",
-                annotation_position="top left"
-            )
-
-            fig6.update_traces(mode="markers+lines")
-            st.plotly_chart(fig6, use_container_width=True)
-
-            # Udnyttelsesgrad pr. lokation
-            st.subheader("Udnyttelsesgrad pr. lokation")
-            util_per_lokation = (
-                daily_util.groupby("start_lokation", dropna=False)
-                .agg(
-                    total_hours=("Timer_total", "sum"),
-                    total_hours_08_17=("Timer_08_17", "sum"),
-                    total_vehicles=("license_plate", "nunique"),
-               )
-                .reset_index()
-            )
-
-            util_per_lokation["udnyttelse_pct_08_17"] = (util_per_lokation["total_hours_08_17"] / (num_workdays * WORKDAY_HOURS)).clip(upper=1.0) * 100.0
-
-            # Søjlediagram: Udnyttelsesgrad pr. lokation (08-17)
-            if not util_per_lokation.empty:
-                fig_util_lok = px.bar(
-                    util_per_lokation.sort_values("udnyttelse_pct_08_17", ascending=False),
+            # Chart: average trips per day by location and vehicle type
+            if not overview.empty:
+                fig1 = px.bar(
+                    overview,
                     x="start_lokation",
-                    y="udnyttelse_pct_08_17",
-                    title="Udnyttelsesgrad (08–17) pr. lokation",
-                    labels={"start_lokation": "Lokation", "udnyttelse_pct_08_17": "Udnyttelsesgrad (08–17) (%)"},
-                    text_auto=".1f",  # viser procenttal på søjlerne
-                )
-
-                fig_util_lok.update_layout(
-                    xaxis_tickangle=-45,
-                    yaxis_title="Udnyttelsesgrad (08–17) (%)",
-                    xaxis_title="Lokation",
-                    height=500,
-                    margin=dict(l=40, r=40, t=60, b=100),
-                )
-
-                st.plotly_chart(fig_util_lok, use_container_width=True)
-            else:
-                st.info("Ingen data til at vise udnyttelsesgrad pr. lokation.")
-            
-            with st.expander("Se udnyttelsesgrad pr. lokation"):
-                st.dataframe(
-                util_per_lokation.rename(columns={
-                    "start_lokation": "Lokation",
-                    "total_vehicles": "Antal unikke biler",
-                    "total_hours": "Total timer (alle dage)",
-                    "total_hours_08_17": "Total timer (08-17)",
-                    "udnyttelse_pct_08_17": "Udnyttelsesgrad (08-17) (%)",
-                }),
-                use_container_width=False,
-            )
-
-            
-            # Udnyttelsesgrad pr. køretøj
-            st.subheader("Udnyttelsesgrad pr. køretøj")
-                       
-            util_per_vehicle = (
-                daily_util.groupby("license_plate", dropna=False)
-                .agg(
-                    total_hours=("Timer_total", "sum"),
-                    total_hours_08_17=("Timer_08_17", "sum"),
-                    total_days=("Dato", "nunique"),
-                )
-                .reset_index()
-            )
-            
-            util_per_vehicle["udnyttelse_pct_08_17"] = (util_per_vehicle["total_hours_08_17"] / (num_workdays * WORKDAY_HOURS)).clip(upper=1.0) * 100.0
-            util_per_vehicle["udnyttelse_pct_16_timer"] = (util_per_vehicle["total_hours"] / (num_workdays * 16)).clip(upper=1.0) * 100.0
-            util_per_vehicle["udnyttelse_pct_24_timer"] = (util_per_vehicle["total_hours"] / (num_workdays * 24)).clip(upper=1.0) * 100.0
-
-            # Søjlediagram: Udnyttelsesgrad pr. køretøj (08–17)
-            if not util_per_vehicle.empty:
-                fig_util_vehicle = px.bar(
-                    util_per_vehicle.sort_values("udnyttelse_pct_08_17", ascending=False),
-                    x="license_plate",
-                    y="udnyttelse_pct_08_17",
-                    title="Udnyttelsesgrad (08–17) pr. køretøj",
+                    y="avg_trips_per_day",
+                    color="vehicels_type",
+                    barmode="group",
                     labels={
-                        "license_plate": "Køretøj",
-                        "udnyttelse_pct_08_17": "Udnyttelsesgrad (08–17) (%)"
+                        "start_lokation": "Lokation",
+                        "avg_trips_per_day": "Gennemsnitlige ture pr. dag",
+                        "vehicel_type": "Køretøjstype",
                     },
-                    text_auto=".1f",
+                    title="Gennemsnitlige ture pr. dag pr. lokation og køretøjstype",
                 )
+                st.plotly_chart(fig1, use_container_width=True)
 
-                fig_util_vehicle.update_layout(
-                    xaxis_tickangle=-45,
-                    yaxis_title="Udnyttelsesgrad (08–17) (%)",
-                    xaxis_title="Køretøj",
-                    height=500,
-                    margin=dict(l=40, r=40, t=60, b=100),
+        # Location & vehicle type tab
+        with tabs[1]:
+            st.header("Lokationer & køretøj")
+
+            st.markdown("Nøgletal pr. lokation og køretøjstype.")
+            st.dataframe(overview, use_container_width=True)
+            # Chart: utilisation by location and vehicle type
+            if not overview.empty:
+                fig2 = px.bar(
+                    overview,
+                    x="start_lokation",
+                    y="unique_vehicles",
+                    color="vehicels_type",
+                    barmode="group",
+                    labels={
+                        "start_lokation": "Lokation",
+                        "unique_vehicles": "Antal køretøjer",
+                        "vehicels_type": "Køretøjstype",
+                    },
+                    title="Antal køretøjer pr. lokation og køretøjstype",
                 )
+                st.plotly_chart(fig2, use_container_width=True)
 
-                st.plotly_chart(fig_util_vehicle, use_container_width=True)
+            st.subheader("Hvor køretøjerne hører hjemme")
+
+            # Forudsætninger (justér disse tre variabler så de peger på dine allerede filtrerede dataframes):
+            # df_trips_filtered: dit nuværende trips-df efter brugerens filtre i dashboardet
+            # df_vehicles_filtered: (valgfrit) køretøjs-oversigt efter samme filtre (hvis du har en sådan)
+            # Hvis du ikke har en separat køretøjs-DF, sæt df_vehicles_filtered = None
+
+            home_df = compute_home_locations(
+                df_trips=filtered,
+                df_vehicles=filtered,  # eller None
+                col_vehicle="license_plate",
+                col_from_addr="start_lokation",
+                col_home_in_vehicles="start_lokation",      # ret hvis din kolonne hedder noget andet
+                col_is_start_from_home="start_lokation"    # ret/lad blive hvis den findes i dine trips
+            )
+
+            loc_agg = summarize_locations(home_df, col_vehicle="license_plate")
+
+            # Top-metrics
+            c1, c2 = st.columns(2)
+            total_locs = int(loc_agg["Home location"].nunique()) if not loc_agg.empty else 0
+            total_veh  = int(home_df["license_plate"].nunique()) if not home_df.empty else 0
+            with c1:
+                st.metric("Antal lokationer", total_locs)
+            with c2:
+                st.metric("Antal køretøjer", total_veh)
+
+            # Bar chart: antal køretøjer pr. lokation
+            if not loc_agg.empty:
+                fig_loc = px.bar(
+                    loc_agg,
+                    x="Home location",
+                    y="Vehicles",
+                    title="Køretøjer pr. lokation",
+                )
+                fig_loc.update_layout(xaxis_title="Lokation", yaxis_title="Antal køretøjer")
+                st.plotly_chart(fig_loc, use_container_width=True)
             else:
-                st.info("Ingen data til at vise udnyttelsesgrad pr. køretøj.")
+                st.info("Ingen lokationer fundet for det aktuelle filter.")
 
-
-            with st.expander('Se udnyttelsesgrad pr. køretøj'):
+            # Tabel: lokation, antal, liste af reg.nr.
+            with st.expander("Se tabel: Lokation → antal køretøjer → reg.nr."):
                 st.dataframe(
-                    util_per_vehicle.rename(columns={
+                    loc_agg.rename(columns={
+                        "Home location": "Lokation",
+                        "Vehicles": "Antal køretøjer",
+                        "Registreringsnumre": "Registreringsnumre"
+                    }),
+                    use_container_width=True
+                )
+
+            # Tabel: køretøj → home location
+            with st.expander("Se tabel: Køretøj → Home location"):
+                st.dataframe(
+                    home_df.rename(columns={
                         "license_plate": "Køretøj",
+                        "Home location": "Home location"
+                    }).sort_values("Køretøj"),
+                    use_container_width=True
+                )
+
+
+        # Private vs municipal tab
+        with tabs[2]:
+            st.header("Privat vs kommunal")
+            st.markdown(
+                "Denne fane viser, hvor mange ture og kilometre der er kørt i private biler" \
+                "sammenlignet med kommunale personbiler pr. dag og lokation."
+            )
+            # Aggregate totals across all days for display
+            agg_private = private_vs.groupby(["start_lokation", "private"]).agg(
+                trips=("trips", "sum"), km=("km", "sum")
+            ).reset_index()
+            # Replace boolean with string for readability
+            agg_private["Biltype"] = agg_private["private"].map(
+                {True: "Privat", False: "Kommunal"}
+            )
+
+
+            st.dataframe(
+                agg_private.rename(columns={"start_lokation": "Lokation", "trips" : "Ture"})[
+                    ["Lokation", "Biltype", "Ture", "km"]
+                ],
+                use_container_width=True, hide_index=True
+            )
+
+
+            # Pie charts summarising private vs municipal usage
+            col1, col2 = st.columns(2, gap="medium")
+
+            color_map = {"Privat": "#636EFA", "Kommunal": "#EF553B"}
+            category_order = {"Biltype": ["Privat", "Kommunal"]}
+
+            total_trips = agg_private["trips"].sum()
+            if total_trips > 0:
+                fig3 = px.pie(
+                    agg_private,
+                    names="Biltype",
+                    values="trips",
+                    title="Andel af ture: privat vs kommunal",
+                    color="Biltype",
+                    color_discrete_map=color_map,
+                    category_orders=category_order,
+                )
+                with col1:
+                    st.plotly_chart(fig3, use_container_width=True)
+
+            total_km = agg_private["km"].sum()
+            if total_km > 0:
+                fig4 = px.pie(
+                    agg_private,
+                    names="Biltype",
+                    values="km",
+                    title="Andel af kilometre: privat vs kommunal",
+                    color="Biltype",
+                    color_discrete_map=color_map,
+                    category_orders=category_order,
+                )
+                with col2:
+                    st.plotly_chart(fig4, use_container_width=True)
+
+            # 100%-stablet søjlediagram pr. lokation
+            if not agg_private.empty:
+                # Fjern lokationer med kun 1 tur (uanset biltype)
+                trips_per_loc = agg_private.groupby("start_lokation")["trips"].sum()
+                valid_locs = trips_per_loc[trips_per_loc > 1].index
+                agg_filtered = agg_private[agg_private["start_lokation"].isin(valid_locs)]
+
+                if not agg_filtered.empty:
+                    # Beregn andel pr. lokation
+                    pct_df = (
+                        agg_filtered.groupby("start_lokation")
+                        .apply(lambda g: g.assign(
+                            andel=g["trips"] / g["trips"].sum() * 100
+                        ))
+                        .reset_index(drop=True)
+                    )
+
+                    # Tilføj tekstlabel med både procent og antal ture
+                    pct_df["label"] = pct_df.apply(
+                        lambda r: f"{r['andel']:.1f}% ({int(r['trips'])} ture)", axis=1
+                    )
+
+                    pct_df.sort_values(by=["start_lokation"], inplace=True)
+
+                    fig_pct = px.bar(
+                        pct_df,
+                        x="start_lokation",
+                        y="andel",
+                        color="Biltype",
+                        barmode="stack",
+                        text="label",  # bruger den nye labelkolonne
+                        color_discrete_map=color_map,
+                        category_orders=category_order,
+                        labels={
+                            "start_lokation": "Lokation",
+                            "andel": "Andel af ture (%)",
+                            "Biltype": "Biltype"
+                        },
+                        title="Andel af ture (Privat vs Kommunal) pr. lokation – 100 % stablet",
+                    )
+
+                    fig_pct.update_traces(textposition="inside", textfont_size=11)
+                    fig_pct.update_layout(yaxis=dict(range=[0, 100]))
+                    st.plotly_chart(fig_pct, use_container_width=True)
+                else:
+                    st.info("Ingen lokationer med mere end 1 tur at vise.")
+
+
+
+
+        # Employee private usage tab
+        with tabs[3]:
+            st.header("Egen bil pr. medarbejder")
+            st.markdown("Total kørsel i egen bil pr. medarbejder i den valgte periode.")
+            if emp_private.empty:
+                st.info("Ingen registrerede ture i privat bil for de valgte filtre.")
+            else:
+                st.dataframe(
+                    emp_private.rename(columns={
+                        "employee": "Medarbejder",
+                        "trips": "Ture",
+                        "km": "Kilometre",
+                        "duration_hours": "Timer",
+                    }),
+                    use_container_width=True,
+                )
+                fig5 = px.bar(
+                    emp_private,
+                    x="employee",
+                    y="km",
+                    labels={"employee": "Medarbejder", "km": "Kilometre"},
+                    title="Kilometre i egen bil pr. medarbejder",
+                )
+                st.plotly_chart(fig5, use_container_width=True)
+
+        # Utilisation over time tab
+        with tabs[4]:
+            st.header("Udnyttelsesgrad over tid")
+            st.markdown(
+                "Gennemsnitlig udnyttelsesgrad pr. dag på tværs af alle valgte biler og lokationer."
+            )
+            if daily_util.empty:
+                st.info("Ingen data til rådighed for de valgte filtre.")
+            else:
+                
+                # Lokalt filter for denne side
+                st.markdown("**Filtrering på biltype (kun for denne visning)**")
+
+                available_types = sorted([x for x in filtered["vehicels_type"].dropna().unique()])
+                selected_types = st.multiselect(
+                    "Vælg køretøjstype(r)",
+                    options=available_types,
+                    default=available_types,
+                    key="vehicletype_filter_utilisation"
+                )
+
+                # Filtrer data kun for denne side
+                filtered_util = filtered[filtered["vehicels_type"].isin(selected_types)].copy()
+                
+                daily_util = compute_daily_utilization(filtered_util)
+
+                NUMBERS_OF_VEHICELS = daily_util['license_plate'].nunique()
+                
+                # 1) Læs interval fra UI
+                selected_min, selected_max = date_range  # fra din st.sidebar.date_input
+
+                # 2) Sørg for, at "Dato" er datetime64 og normaliseret til dato (uden tid)
+                daily_util["Dato"] = pd.to_datetime(daily_util["Dato"]).dt.normalize()
+
+                # 3) Filtrér data til valgt interval
+                mask = (daily_util["Dato"] >= pd.to_datetime(selected_min)) & (daily_util["Dato"] <= pd.to_datetime(selected_max))
+                daily_util_f = daily_util.loc[mask].copy()
+
+                # 4) Aggreger timer pr. dag
+                daily_util_agg = (
+                    daily_util_f.groupby("Dato", dropna=False)
+                    .agg(
+                        hours_total=("Timer_total", "sum"),
+                        hours_08_17=("Timer_08_17", "sum"),
+                    )
+                    .reset_index()
+                )
+
+                # 5) Lav en komplet kalender med alle datoer i intervallet
+                all_dates = pd.DataFrame({"Dato": pd.date_range(pd.to_datetime(selected_min), pd.to_datetime(selected_max), freq="D")})
+
+                # 6) Merge for at sikre alle datoer er med, og udfyld manglende med 0
+                daily_util_agg = (
+                    all_dates.merge(daily_util_agg, on="Dato", how="left")
+                    .fillna({"hours_total": 0.0, "hours_08_17": 0.0})
+                )
+
+                # 7) Beregn gennemsnit pr. køretøj (global variabel)
+                #    OBS: Tjek stavning – du brugte "NUMBERS_OF_VEHICELS". Brug "NUMBERS_OF_VEHICLES".
+                daily_util_agg["avg_hours_total"] = daily_util_agg["hours_total"] / NUMBERS_OF_VEHICELS
+                daily_util_agg["avg_hours_08_17"] = daily_util_agg["hours_08_17"] / NUMBERS_OF_VEHICELS
+
+                # 8) Til reference: antal biler
+                daily_util_agg["Antal biler"] = NUMBERS_OF_VEHICELS
+
+                # 9) Udnyttelsesgrader (pr. køretøj)
+                #    Fordi "avg_hours_*" allerede er pr. bil, skal der KUN divideres med WORKDAY_HOURS.
+                daily_util_agg["udnyttelse_pct_08_17"] = (daily_util_agg["avg_hours_08_17"] / WORKDAY_HOURS).clip(upper=1.0) * 100.0
+
+                # Beregn gennemsnit og 7-dages glidende gennemsnit
+                mean_value = daily_util_agg["udnyttelse_pct_08_17"].mean()
+
+                st.markdown(f"Gennemsnitlig udnyttelsesgrad (08–17) i perioden: **{mean_value:.1f}%**")
+
+                daily_util_agg["rolling_mean_7d"] = (
+                    daily_util_agg["udnyttelse_pct_08_17"]
+                    .rolling(window=7, min_periods=1)
+                    .mean()
+    )
+
+                # Linjediagram: Udnyttelsesgrad over tid (08-17)
+                st.subheader("Udnyttelsesgrad over tid (08–17)")
+                fig6 = px.line(
+                    daily_util_agg,
+                    x="Dato",
+                    y="udnyttelse_pct_08_17",
+                    labels={"udnyttelse_pct_08_17": "Udnyttelsesgrad (%)", "Dato": "Dato"},
+                    title="Gennemsnitlig udnyttelsesgrad over tid (08–17)"
+                )
+
+                # Tilføj 7-dages glidende gennemsnit
+                fig6.add_scatter(
+                    x=daily_util_agg["Dato"],
+                    y=daily_util_agg["rolling_mean_7d"],
+                    mode="lines",
+                    name="7-dages gennemsnit",
+                    line=dict(color="orange", width=3, dash="dash")
+                )
+
+                # Tilføj en vandret linje for globalt gennemsnit
+                fig6.add_hline(
+                    y=mean_value,
+                    line_dash="dot",
+                    line_color="green",
+                    name="Gennemsnit",
+                    annotation_text=f"Gennemsnit: {mean_value:.1f}%",
+                    annotation_position="top left"
+                )
+
+                fig6.update_traces(mode="markers+lines")
+                st.plotly_chart(fig6, use_container_width=True)
+
+                # Udnyttelsesgrad pr. lokation
+                st.subheader("Udnyttelsesgrad pr. lokation")
+                util_per_lokation = (
+                    daily_util.groupby("start_lokation", dropna=False)
+                    .agg(
+                        total_hours=("Timer_total", "sum"),
+                        total_hours_08_17=("Timer_08_17", "sum"),
+                        total_vehicles=("license_plate", "nunique"),
+                )
+                    .reset_index()
+                )
+
+                util_per_lokation["udnyttelse_pct_08_17"] = (util_per_lokation["total_hours_08_17"] / (num_workdays * WORKDAY_HOURS)).clip(upper=1.0) * 100.0
+
+                # Søjlediagram: Udnyttelsesgrad pr. lokation (08-17)
+                if not util_per_lokation.empty:
+                    fig_util_lok = px.bar(
+                        util_per_lokation.sort_values("udnyttelse_pct_08_17", ascending=False),
+                        x="start_lokation",
+                        y="udnyttelse_pct_08_17",
+                        title="Udnyttelsesgrad (08–17) pr. lokation",
+                        labels={"start_lokation": "Lokation", "udnyttelse_pct_08_17": "Udnyttelsesgrad (08–17) (%)"},
+                        text_auto=".1f",  # viser procenttal på søjlerne
+                    )
+
+                    fig_util_lok.update_layout(
+                        xaxis_tickangle=-45,
+                        yaxis_title="Udnyttelsesgrad (08–17) (%)",
+                        xaxis_title="Lokation",
+                        height=500,
+                        margin=dict(l=40, r=40, t=60, b=100),
+                    )
+
+                    st.plotly_chart(fig_util_lok, use_container_width=True)
+                else:
+                    st.info("Ingen data til at vise udnyttelsesgrad pr. lokation.")
+                
+                with st.expander("Se udnyttelsesgrad pr. lokation"):
+                    st.dataframe(
+                    util_per_lokation.rename(columns={
+                        "start_lokation": "Lokation",
+                        "total_vehicles": "Antal unikke biler",
                         "total_hours": "Total timer (alle dage)",
                         "total_hours_08_17": "Total timer (08-17)",
-                        "total_days": "Antal dage med kørsel",
                         "udnyttelse_pct_08_17": "Udnyttelsesgrad (08-17) (%)",
-                        "udnyttelse_pct_16_timer": "Udnyttelsesgrad (16 timer) (%)",
-                        "udnyttelse_pct_24_timer": "Udnyttelsesgrad (24 timer) (%)",
                     }),
                     use_container_width=False,
                 )
 
-            # Rå data (før aggregering)
-            with st.expander("Se rå data (før aggregering)"):
-                st.dataframe(
-                    daily_util.rename(columns={
-                        "Dato": "Dato",
-                        "license_plate": "Køretøj",
-                        "Timer_total": "Timer (total)",
-                        "Timer_08_17": "Timer (08-17)",
-                        "udnyttelse_pct_08_17": "Udnyttelsesgrad (08-17) (%)",
-                    }),
-                    use_container_width=False,
+                
+                # Udnyttelsesgrad pr. køretøj
+                st.subheader("Udnyttelsesgrad pr. køretøj")
+                        
+                util_per_vehicle = (
+                    daily_util.groupby("license_plate", dropna=False)
+                    .agg(
+                        total_hours=("Timer_total", "sum"),
+                        total_hours_08_17=("Timer_08_17", "sum"),
+                        total_days=("Dato", "nunique"),
+                    )
+                    .reset_index()
                 )
+                
+                util_per_vehicle["udnyttelse_pct_08_17"] = (util_per_vehicle["total_hours_08_17"] / (num_workdays * WORKDAY_HOURS)).clip(upper=1.0) * 100.0
+                util_per_vehicle["udnyttelse_pct_16_timer"] = (util_per_vehicle["total_hours"] / (num_workdays * 16)).clip(upper=1.0) * 100.0
+                util_per_vehicle["udnyttelse_pct_24_timer"] = (util_per_vehicle["total_hours"] / (num_workdays * 24)).clip(upper=1.0) * 100.0
+
+                # Søjlediagram: Udnyttelsesgrad pr. køretøj (08–17)
+                if not util_per_vehicle.empty:
+                    fig_util_vehicle = px.bar(
+                        util_per_vehicle.sort_values("udnyttelse_pct_08_17", ascending=False),
+                        x="license_plate",
+                        y="udnyttelse_pct_08_17",
+                        title="Udnyttelsesgrad (08–17) pr. køretøj",
+                        labels={
+                            "license_plate": "Køretøj",
+                            "udnyttelse_pct_08_17": "Udnyttelsesgrad (08–17) (%)"
+                        },
+                        text_auto=".1f",
+                    )
+
+                    fig_util_vehicle.update_layout(
+                        xaxis_tickangle=-45,
+                        yaxis_title="Udnyttelsesgrad (08–17) (%)",
+                        xaxis_title="Køretøj",
+                        height=500,
+                        margin=dict(l=40, r=40, t=60, b=100),
+                    )
+
+                    st.plotly_chart(fig_util_vehicle, use_container_width=True)
+                else:
+                    st.info("Ingen data til at vise udnyttelsesgrad pr. køretøj.")
+
+
+                with st.expander('Se udnyttelsesgrad pr. køretøj'):
+                    st.dataframe(
+                        util_per_vehicle.rename(columns={
+                            "license_plate": "Køretøj",
+                            "total_hours": "Total timer (alle dage)",
+                            "total_hours_08_17": "Total timer (08-17)",
+                            "total_days": "Antal dage med kørsel",
+                            "udnyttelse_pct_08_17": "Udnyttelsesgrad (08-17) (%)",
+                            "udnyttelse_pct_16_timer": "Udnyttelsesgrad (16 timer) (%)",
+                            "udnyttelse_pct_24_timer": "Udnyttelsesgrad (24 timer) (%)",
+                        }),
+                        use_container_width=False,
+                    )
+
+                # Rå data (før aggregering)
+                with st.expander("Se rå data (før aggregering)"):
+                    st.dataframe(
+                        daily_util.rename(columns={
+                            "Dato": "Dato",
+                            "license_plate": "Køretøj",
+                            "Timer_total": "Timer (total)",
+                            "Timer_08_17": "Timer (08-17)",
+                            "udnyttelse_pct_08_17": "Udnyttelsesgrad (08-17) (%)",
+                        }),
+                        use_container_width=False,
+                    )
 
 
 if __name__ == "__main__":
