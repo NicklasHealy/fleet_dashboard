@@ -1,0 +1,16 @@
+# Core dashboard libraries
+pandas>=2.2.3
+numpy>=1.26.4
+plotly>=5.24.1
+
+# Excel support
+openpyxl>=3.1.5
+
+# Optional performance & warnings
+pyarrow>=17.0.0
+
+# Type hints and static checking (optional but nice to have)
+typing-extensions>=4.12.2
+
+streamlit
+pywebview
