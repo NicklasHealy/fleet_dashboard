@@ -1399,6 +1399,114 @@ def main():
                         .reset_index(drop=True),
                         use_container_width=True,
                     )
+
+            # Per-bil oversigt under samme fane
+            st.subheader("Per bil")
+            st.markdown(
+                "Se hvilke biler der anvendes pr. ugedag på de valgte lokationer."
+            )
+
+            wk = filtered.copy()
+            wk["date"] = pd.to_datetime(wk["date"], errors="coerce")
+            wk = wk.dropna(subset=["date", "start_lokation", "license_plate"]).copy()
+            wk["weekday_num"] = wk["date"].dt.weekday
+            wk["weekday"] = wk["weekday_num"].map(WEEKDAY_LABELS_DA)
+
+            # Valgfrit ekstra filter for lokation
+            loc_options = sorted(wk["start_lokation"].dropna().unique().tolist())
+            loc_sel = st.multiselect(
+                "Filtrer lokationer (valgfrit)",
+                options=loc_options,
+                default=selected_lokations or []
+            )
+            if loc_sel:
+                wk = wk[wk["start_lokation"].isin(loc_sel)]
+
+            # Aggreger per lokation, ugedag og bil
+            agg_kwargs = {"trips": ("license_plate", "count")}
+            if "distance_km" in wk.columns:
+                agg_kwargs["km"] = ("distance_km", "sum")
+            if "duration_hours" in wk.columns:
+                agg_kwargs["timer"] = ("duration_hours", "sum")
+
+            per_vehicle = (
+                wk.groupby(["start_lokation", "weekday_num", "weekday", "license_plate"], dropna=False)
+                  .agg(**agg_kwargs)
+                  .reset_index()
+                  .sort_values(["start_lokation", "weekday_num", "license_plate"])
+            )
+
+            # Unikke biler og sum ture pr. ugedag og lokation
+            vehicles_per_weekday = (
+                per_vehicle.groupby(["start_lokation", "weekday", "weekday_num"], dropna=False)
+                  .agg(unique_vehicles=("license_plate", "nunique"),
+                       trips=("trips", "sum"))
+                  .reset_index()
+                  .sort_values(["weekday_num", "start_lokation"])
+            )
+
+            c1, c2 = st.columns(2)
+            with c1:
+                fig_uv = px.bar(
+                    vehicles_per_weekday,
+                    x="weekday",
+                    y="unique_vehicles",
+                    color="start_lokation",
+                    category_orders={"weekday": WEEKDAY_ORDER},
+                    labels={"weekday": "Ugedag", "unique_vehicles": "Unikke biler", "start_lokation": "Lokation"},
+                    title="Unikke biler pr. ugedag og lokation",
+                )
+                st.plotly_chart(fig_uv, use_container_width=True)
+
+            with c2:
+                fig_trips2 = px.bar(
+                    vehicles_per_weekday,
+                    x="weekday",
+                    y="trips",
+                    color="start_lokation",
+                    category_orders={"weekday": WEEKDAY_ORDER},
+                    labels={"weekday": "Ugedag", "trips": "Ture", "start_lokation": "Lokation"},
+                    title="Ture pr. ugedag og lokation",
+                )
+                st.plotly_chart(fig_trips2, use_container_width=True)
+
+            # Valgfri heatmap – når præcis én lokation er valgt
+            if loc_sel and len(loc_sel) == 1 and not per_vehicle.empty:
+                top_sel = st.slider("Vis top N biler (efter ture)", min_value=5, max_value=50, value=20, step=5)
+                one_loc = per_vehicle[per_vehicle["start_lokation"] == loc_sel[0]].copy()
+                top_vehicles = (
+                    one_loc.groupby("license_plate")["trips"].sum()
+                           .sort_values(ascending=False)
+                           .head(top_sel).index.tolist()
+                )
+                one_loc = one_loc[one_loc["license_plate"].isin(top_vehicles)]
+                if not one_loc.empty:
+                    fig_heat = px.density_heatmap(
+                        one_loc,
+                        x="weekday",
+                        y="license_plate",
+                        z="trips",
+                        category_orders={"weekday": WEEKDAY_ORDER},
+                        labels={"weekday": "Ugedag", "license_plate": "Bil", "trips": "Ture"},
+                        title=f"Aktivitet pr. bil og ugedag – {loc_sel[0]}",
+                    )
+                    st.plotly_chart(fig_heat, use_container_width=True)
+
+            with st.expander("Detaljer pr. lokation, ugedag og bil"):
+                rename_map = {
+                    "start_lokation": "Lokation",
+                    "weekday": "Ugedag",
+                    "license_plate": "Bil",
+                    "trips": "Ture",
+                    "km": "Km",
+                    "timer": "Timer",
+                }
+                cols = [c for c in ["start_lokation", "weekday", "license_plate", "trips", "km", "timer"] if c in per_vehicle.columns]
+                st.dataframe(
+                    per_vehicle[cols].rename(columns=rename_map),
+                    use_container_width=True,
+                    hide_index=True,
+                )
         
 
 
