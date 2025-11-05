@@ -89,6 +89,17 @@ WORKDAY_END = datetime.time(17, 0)
 WORKDAY_HOURS = (datetime.datetime.combine(datetime.date.min, WORKDAY_END) -
                  datetime.datetime.combine(datetime.date.min, WORKDAY_START)).seconds / 3600.0
 
+WEEKDAY_LABELS_DA = {
+    0: "Mandag",
+    1: "Tirsdag",
+    2: "Onsdag",
+    3: "Torsdag",
+    4: "Fredag",
+    5: "Lørdag",
+    6: "Søndag",
+}
+WEEKDAY_ORDER = [WEEKDAY_LABELS_DA[i] for i in range(7)]
+
 
 from datetime import datetime, time, timedelta
 
@@ -311,6 +322,124 @@ def compute_daily_utilization(
     return daily
 
 
+def compute_weekday_metrics(
+    df: pd.DataFrame,
+    start_date: Optional[datetime.date] = None,
+    end_date: Optional[datetime.date] = None,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Return aggregated metrics pr. ugedag for lokationer og samlet set.
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        Allerede filtreret dataset.
+    start_date, end_date : datetime.date, optional
+        De valgte datogrænser. Bruges til at beregne hvor mange gange hver
+        ugedag optræder i intervallet (for gennemsnitlige ture pr. dag).
+    Returns
+    -------
+    tuple[pandas.DataFrame, pandas.DataFrame]
+        Første DataFrame indeholder kolonnerne::
+            [start_lokation, weekday_num, weekday, trips, avg_trips_per_day,
+             total_distance, avg_distance, total_duration, avg_duration,
+             days_in_range]
+        Anden DataFrame er en samlet oversigt pr. ugedag (uden lokation).
+    """
+    if df.empty:
+        cols = [
+            "start_lokation",
+            "weekday_num",
+            "weekday",
+            "trips",
+            "avg_trips_per_day",
+            "total_distance",
+            "avg_distance",
+            "total_duration",
+            "avg_duration",
+            "days_in_range",
+        ]
+        empty_loc = pd.DataFrame(columns=cols)
+        empty_overall = pd.DataFrame(
+            columns=[
+                "weekday_num",
+                "weekday",
+                "trips",
+                "avg_trips_per_day",
+                "avg_duration",
+                "median_duration",
+                "avg_distance",
+                "median_distance",
+            ]
+        )
+        return empty_loc, empty_overall
+    work = df.copy()
+    work["date"] = pd.to_datetime(work["date"], errors="coerce")
+    work = work.dropna(subset=["date"]).copy()
+    work["weekday_num"] = work["date"].dt.weekday
+    work["weekday"] = work["weekday_num"].map(WEEKDAY_LABELS_DA)
+    # Fastlæg datointervallet der skal bruges til gennemsnit
+    start = pd.to_datetime(start_date) if start_date else work["date"].min()
+    end = pd.to_datetime(end_date) if end_date else work["date"].max()
+    if pd.isna(start) or pd.isna(end):
+        date_range = pd.DatetimeIndex([])
+    else:
+        if start > end:
+            start, end = end, start
+        date_range = pd.date_range(start, end, freq="D")
+    weekday_calendar = (
+        pd.DataFrame({"weekday_num": range(7)})
+        .assign(days_in_range=0)
+    )
+    if not date_range.empty:
+        weekday_counts = (
+            pd.Series(date_range.weekday)
+            .value_counts()
+            .reindex(range(7), fill_value=0)
+            .rename("days_in_range")
+            .reset_index(names="weekday_num")
+        )
+        weekday_calendar = weekday_counts
+    agg_kwargs = {"trips": ("license_plate", "count")}
+    if "distance_km" in work.columns:
+        agg_kwargs["total_distance"] = ("distance_km", "sum")
+        agg_kwargs["avg_distance"] = ("distance_km", "mean")
+    if "duration_hours" in work.columns:
+        agg_kwargs["total_duration"] = ("duration_hours", "sum")
+        agg_kwargs["avg_duration"] = ("duration_hours", "mean")
+    grouped = (
+        work.groupby(["start_lokation", "weekday_num", "weekday"], dropna=False)
+        .agg(**agg_kwargs)
+        .reset_index()
+    )
+    grouped = grouped.merge(weekday_calendar, on="weekday_num", how="left")
+    grouped["days_in_range"] = grouped["days_in_range"].fillna(0)
+    grouped["avg_trips_per_day"] = np.where(
+        grouped["days_in_range"] > 0,
+        grouped["trips"] / grouped["days_in_range"],
+        np.nan,
+    )
+    overall_agg_kwargs = {"trips": ("license_plate", "count")}
+    if "duration_hours" in work.columns:
+        overall_agg_kwargs["avg_duration"] = ("duration_hours", "mean")
+        overall_agg_kwargs["median_duration"] = ("duration_hours", "median")
+    if "distance_km" in work.columns:
+        overall_agg_kwargs["avg_distance"] = ("distance_km", "mean")
+        overall_agg_kwargs["median_distance"] = ("distance_km", "median")
+    overall = (
+        work.groupby(["weekday_num", "weekday"], dropna=False)
+        .agg(**overall_agg_kwargs)
+        .reset_index()
+    )
+    overall = overall.merge(weekday_calendar, on="weekday_num", how="left")
+    overall["days_in_range"] = overall["days_in_range"].fillna(0)
+    overall["avg_trips_per_day"] = np.where(
+        overall["days_in_range"] > 0,
+        overall["trips"] / overall["days_in_range"],
+        np.nan,
+    )
+    return grouped, overall
+
+
+
 
 def filter_data(
     df: pd.DataFrame,
@@ -521,6 +650,7 @@ def main():
                 "Privat vs kommunal",
                 "Egen bil pr. medarbejder",
                 "Udnyttelsesgrad over tid",
+                "Ugedagsanvendelse",
             ]
         )
 
@@ -1090,6 +1220,154 @@ def main():
                         }),
                         use_container_width=False,
                     )
+
+        with tabs[5]:
+            st.header("Ugedagsanvendelse")
+            st.markdown(
+                """
+                Denne fane viser hvordan køretøjerne bliver brugt fordelt på
+                ugedage. Du kan både se antal ture, gennemsnitlige ture pr.
+                kalenderdag og hvordan varigheden og længden af turene udvikler
+                sig hen over ugen.
+                """
+            )
+            weekday_loc, weekday_overall = compute_weekday_metrics(
+                filtered, start_date=start_date, end_date=end_date
+            )
+            if weekday_loc.empty:
+                st.info("Ingen ture i den valgte periode/filtre.")
+            else:
+                weekday_loc = weekday_loc.sort_values(
+                    ["weekday_num", "start_lokation"], ascending=[True, True]
+                )
+                category_orders = {"weekday": WEEKDAY_ORDER}
+                col1, col2 = st.columns(2)
+                with col1:
+                    fig_trips = px.bar(
+                        weekday_loc,
+                        x="weekday",
+                        y="trips",
+                        color="start_lokation",
+                        category_orders=category_orders,
+                        labels={
+                            "weekday": "Ugedag",
+                            "trips": "Antal ture",
+                            "start_lokation": "Lokation",
+                        },
+                        title="Antal ture pr. ugedag og lokation",
+                    )
+                    st.plotly_chart(fig_trips, use_container_width=True)
+                with col2:
+                    fig_avg_trips = px.bar(
+                        weekday_loc,
+                        x="weekday",
+                        y="avg_trips_per_day",
+                        color="start_lokation",
+                        category_orders=category_orders,
+                        labels={
+                            "weekday": "Ugedag",
+                            "avg_trips_per_day": "Gns. ture pr. kalenderdag",
+                            "start_lokation": "Lokation",
+                        },
+                        title="Gns. antal ture pr. ugedag (kalenderbaseret)",
+                    )
+                    fig_avg_trips.update_yaxes(tickformat=",.2f")
+                    st.plotly_chart(fig_avg_trips, use_container_width=True)
+                distance_cols = {"total_distance": "Samlede km", "avg_distance": "Gns. km pr. tur"}
+                available_distance = [c for c in distance_cols if c in weekday_loc.columns]
+                if available_distance:
+                    fig_distance = px.bar(
+                        weekday_loc,
+                        x="weekday",
+                        y=available_distance[0],
+                        color="start_lokation",
+                        category_orders=category_orders,
+                        labels={
+                            "weekday": "Ugedag",
+                            available_distance[0]: distance_cols[available_distance[0]],
+                            "start_lokation": "Lokation",
+                        },
+                        title=(
+                            "Samlede kilometre pr. ugedag" if available_distance[0] == "total_distance"
+                            else "Gennemsnitlig tur-længde pr. ugedag"
+                        ),
+                    )
+                    st.plotly_chart(fig_distance, use_container_width=True)
+                with st.expander("Detaljeret tabel pr. lokation og ugedag"):
+                    display_cols = {
+                        "start_lokation": "Lokation",
+                        "weekday": "Ugedag",
+                        "trips": "Ture",
+                        "avg_trips_per_day": "Gns. ture pr. kalenderdag",
+                        "total_distance": "Samlede km",
+                        "avg_distance": "Gns. km pr. tur",
+                        "total_duration": "Samlet varighed (timer)",
+                        "avg_duration": "Gns. varighed (timer)",
+                        "days_in_range": "Antal dage i intervallet",
+                    }
+                    cols_to_show = [c for c in display_cols if c in weekday_loc.columns]
+                    st.dataframe(
+                        weekday_loc[cols_to_show]
+                        .rename(columns={k: v for k, v in display_cols.items() if k in cols_to_show})
+                        .reset_index(drop=True),
+                        use_container_width=True,
+                    )
+            if not weekday_overall.empty:
+                weekday_overall = weekday_overall.sort_values("weekday_num")
+                if "avg_duration" in weekday_overall.columns:
+                    duration_df = weekday_overall[["weekday", "avg_duration", "median_duration"]].copy()
+                    duration_df["avg_duration_min"] = duration_df["avg_duration"] * 60
+                    duration_df["median_duration_min"] = duration_df["median_duration"] * 60
+                    fig_duration = px.bar(
+                        duration_df,
+                        x="weekday",
+                        y="avg_duration_min",
+                        category_orders={"weekday": WEEKDAY_ORDER},
+                        labels={
+                            "weekday": "Ugedag",
+                            "avg_duration_min": "Gns. varighed (minutter)",
+                        },
+                        title="Gennemsnitlig varighed pr. tur fordelt på ugedage",
+                    )
+                    fig_duration.update_traces(marker_color="#636EFA")
+                    st.plotly_chart(fig_duration, use_container_width=True)
+                    st.caption(
+                        "Medianen (vist i tabellen herunder) giver et robust billede af de typiske ture."
+                    )
+                if "avg_distance" in weekday_overall.columns:
+                    distance_overall = weekday_overall[["weekday", "avg_distance", "median_distance"]].copy()
+                    fig_avg_distance = px.line(
+                        distance_overall,
+                        x="weekday",
+                        y="avg_distance",
+                        category_orders={"weekday": WEEKDAY_ORDER},
+                        markers=True,
+                        labels={
+                            "weekday": "Ugedag",
+                            "avg_distance": "Gns. km pr. tur",
+                        },
+                        title="Gennemsnitlig turlængde på tværs af alle lokationer",
+                    )
+                    st.plotly_chart(fig_avg_distance, use_container_width=True)
+                with st.expander("Samlet oversigt pr. ugedag"):
+                    overall_display = {
+                        "weekday": "Ugedag",
+                        "trips": "Ture",
+                        "avg_trips_per_day": "Gns. ture pr. kalenderdag",
+                        "avg_duration": "Gns. varighed (timer)",
+                        "median_duration": "Median varighed (timer)",
+                        "avg_distance": "Gns. km pr. tur",
+                        "median_distance": "Median km pr. tur",
+                        "days_in_range": "Antal dage i intervallet",
+                    }
+                    cols_to_show = [c for c in overall_display if c in weekday_overall.columns]
+                    st.dataframe(
+                        weekday_overall[cols_to_show]
+                        .rename(columns={k: v for k, v in overall_display.items() if k in cols_to_show})
+                        .reset_index(drop=True),
+                        use_container_width=True,
+                    )
+        
 
 
 if __name__ == "__main__":
