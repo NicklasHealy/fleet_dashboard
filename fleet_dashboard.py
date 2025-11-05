@@ -666,6 +666,7 @@ def main():
                 "Ugedagsanvendelse",
             ]
         )
+        
 
         # Overview tab
         with tabs[0]:
@@ -678,7 +679,7 @@ def main():
                 teoretisk tilgængelige arbejdstid.
                 """
             )
-
+            
             # Display key metrics
             st.subheader("Nøgletal for valgt periode/filtre")
 
@@ -1306,6 +1307,24 @@ def main():
                         ),
                     )
                     st.plotly_chart(fig_distance, use_container_width=True)
+
+                # Ny visualisering: Samlet varighed (timer) pr. ugedag og lokation
+                if "total_duration" in weekday_loc.columns:
+                    fig_total_duration = px.bar(
+                        weekday_loc,
+                        x="weekday",
+                        y="total_duration",
+                        color="start_lokation",
+                        category_orders=category_orders,
+                        labels={
+                            "weekday": "Ugedag",
+                            "total_duration": "Samlet varighed (timer)",
+                            "start_lokation": "Lokation",
+                        },
+                        title="Samlet varighed pr. ugedag og lokation",
+                    )
+                    fig_total_duration.update_yaxes(tickformat=",.2f")
+                    st.plotly_chart(fig_total_duration, use_container_width=True)
                 with st.expander("Detaljeret tabel pr. lokation og ugedag"):
                     display_cols = {
                         "start_lokation": "Lokation",
