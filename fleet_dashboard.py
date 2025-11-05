@@ -328,6 +328,7 @@ def compute_weekday_metrics(
     end_date: Optional[datetime.date] = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Return aggregated metrics pr. ugedag for lokationer og samlet set.
+
     Parameters
     ----------
     df : pandas.DataFrame
@@ -335,15 +336,19 @@ def compute_weekday_metrics(
     start_date, end_date : datetime.date, optional
         De valgte datogrænser. Bruges til at beregne hvor mange gange hver
         ugedag optræder i intervallet (for gennemsnitlige ture pr. dag).
+
     Returns
     -------
     tuple[pandas.DataFrame, pandas.DataFrame]
         Første DataFrame indeholder kolonnerne::
+
             [start_lokation, weekday_num, weekday, trips, avg_trips_per_day,
              total_distance, avg_distance, total_duration, avg_duration,
              days_in_range]
+
         Anden DataFrame er en samlet oversigt pr. ugedag (uden lokation).
     """
+
     if df.empty:
         cols = [
             "start_lokation",
@@ -371,11 +376,13 @@ def compute_weekday_metrics(
             ]
         )
         return empty_loc, empty_overall
+
     work = df.copy()
     work["date"] = pd.to_datetime(work["date"], errors="coerce")
     work = work.dropna(subset=["date"]).copy()
     work["weekday_num"] = work["date"].dt.weekday
     work["weekday"] = work["weekday_num"].map(WEEKDAY_LABELS_DA)
+
     # Fastlæg datointervallet der skal bruges til gennemsnit
     start = pd.to_datetime(start_date) if start_date else work["date"].min()
     end = pd.to_datetime(end_date) if end_date else work["date"].max()
@@ -385,6 +392,7 @@ def compute_weekday_metrics(
         if start > end:
             start, end = end, start
         date_range = pd.date_range(start, end, freq="D")
+
     weekday_calendar = (
         pd.DataFrame({"weekday_num": range(7)})
         .assign(days_in_range=0)
@@ -395,9 +403,11 @@ def compute_weekday_metrics(
             .value_counts()
             .reindex(range(7), fill_value=0)
             .rename("days_in_range")
-            .reset_index(names="weekday_num")
+            .rename_axis("weekday_num")
+            .reset_index()
         )
         weekday_calendar = weekday_counts
+
     agg_kwargs = {"trips": ("license_plate", "count")}
     if "distance_km" in work.columns:
         agg_kwargs["total_distance"] = ("distance_km", "sum")
@@ -405,6 +415,7 @@ def compute_weekday_metrics(
     if "duration_hours" in work.columns:
         agg_kwargs["total_duration"] = ("duration_hours", "sum")
         agg_kwargs["avg_duration"] = ("duration_hours", "mean")
+
     grouped = (
         work.groupby(["start_lokation", "weekday_num", "weekday"], dropna=False)
         .agg(**agg_kwargs)
@@ -417,6 +428,7 @@ def compute_weekday_metrics(
         grouped["trips"] / grouped["days_in_range"],
         np.nan,
     )
+
     overall_agg_kwargs = {"trips": ("license_plate", "count")}
     if "duration_hours" in work.columns:
         overall_agg_kwargs["avg_duration"] = ("duration_hours", "mean")
@@ -424,6 +436,7 @@ def compute_weekday_metrics(
     if "distance_km" in work.columns:
         overall_agg_kwargs["avg_distance"] = ("distance_km", "mean")
         overall_agg_kwargs["median_distance"] = ("distance_km", "median")
+
     overall = (
         work.groupby(["weekday_num", "weekday"], dropna=False)
         .agg(**overall_agg_kwargs)
@@ -436,8 +449,8 @@ def compute_weekday_metrics(
         overall["trips"] / overall["days_in_range"],
         np.nan,
     )
-    return grouped, overall
 
+    return grouped, overall
 
 
 
