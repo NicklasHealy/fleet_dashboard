@@ -1470,6 +1470,117 @@ def main():
                 )
                 st.plotly_chart(fig_trips2, use_container_width=True)
 
+            # Stacked charts per vehicle (legend can toggle vehicles)
+            if not per_vehicle.empty:
+                # Days in range per weekday for averaging
+                start = pd.to_datetime(start_date) if start_date else wk["date"].min()
+                end = pd.to_datetime(end_date) if end_date else wk["date"].max()
+                if pd.isna(start) or pd.isna(end) or start > end:
+                    weekday_counts = pd.DataFrame({"weekday_num": range(7), "days_in_range": 0})
+                else:
+                    dr = pd.date_range(start, end, freq="D")
+                    weekday_counts = (
+                        pd.Series(dr.weekday)
+                        .value_counts()
+                        .reindex(range(7), fill_value=0)
+                        .rename("days_in_range")
+                        .rename_axis("weekday_num")
+                        .reset_index()
+                    )
+
+                per_vehicle_avg = per_vehicle.merge(weekday_counts, on="weekday_num", how="left")
+                per_vehicle_avg["days_in_range"] = per_vehicle_avg["days_in_range"].fillna(0)
+                per_vehicle_avg["avg_trips_per_day"] = np.where(
+                    per_vehicle_avg["days_in_range"] > 0,
+                    per_vehicle_avg["trips"] / per_vehicle_avg["days_in_range"],
+                    np.nan,
+                )
+                if "timer" in per_vehicle_avg.columns:
+                    per_vehicle_avg["avg_timer_per_day"] = np.where(
+                        per_vehicle_avg["days_in_range"] > 0,
+                        per_vehicle_avg["timer"] / per_vehicle_avg["days_in_range"],
+                        np.nan,
+                    )
+
+                st.markdown("—")
+                st.subheader("Stablede søjler pr. ugedag (vælg biler via legend)")
+                c3, c4 = st.columns(2)
+                with c3:
+                    if "timer" in per_vehicle.columns:
+                        fig_tot_dur = px.bar(
+                            per_vehicle,
+                            x="weekday",
+                            y="timer",
+                            color="license_plate",
+                            category_orders={"weekday": WEEKDAY_ORDER},
+                            labels={
+                                "weekday": "Ugedag",
+                                "timer": "Samlet varighed (timer)",
+                                "license_plate": "Bil",
+                            },
+                            title="Samlet varighed pr. ugedag (stablet)",
+                        )
+                        fig_tot_dur.update_layout(barmode="stack")
+                        fig_tot_dur.update_yaxes(tickformat=",.2f")
+                        st.plotly_chart(fig_tot_dur, use_container_width=True)
+                    else:
+                        st.info("Ingen varighedskolonne i data (duration_hours mangler).")
+                with c4:
+                    fig_trips_stacked = px.bar(
+                        per_vehicle,
+                        x="weekday",
+                        y="trips",
+                        color="license_plate",
+                        category_orders={"weekday": WEEKDAY_ORDER},
+                        labels={
+                            "weekday": "Ugedag",
+                            "trips": "Antal ture",
+                            "license_plate": "Bil",
+                        },
+                        title="Antal ture pr. ugedag (stablet)",
+                    )
+                    fig_trips_stacked.update_layout(barmode="stack")
+                    st.plotly_chart(fig_trips_stacked, use_container_width=True)
+
+                c5, c6 = st.columns(2)
+                with c5:
+                    fig_avg_trips_stacked = px.bar(
+                        per_vehicle_avg,
+                        x="weekday",
+                        y="avg_trips_per_day",
+                        color="license_plate",
+                        category_orders={"weekday": WEEKDAY_ORDER},
+                        labels={
+                            "weekday": "Ugedag",
+                            "avg_trips_per_day": "Gns. ture pr. kalenderdag",
+                            "license_plate": "Bil",
+                        },
+                        title="Gns. ture pr. ugedag (stablet)",
+                    )
+                    fig_avg_trips_stacked.update_layout(barmode="stack")
+                    fig_avg_trips_stacked.update_yaxes(tickformat=",.2f")
+                    st.plotly_chart(fig_avg_trips_stacked, use_container_width=True)
+                with c6:
+                    if "avg_timer_per_day" in per_vehicle_avg.columns:
+                        fig_avg_dur_stacked = px.bar(
+                            per_vehicle_avg,
+                            x="weekday",
+                            y="avg_timer_per_day",
+                            color="license_plate",
+                            category_orders={"weekday": WEEKDAY_ORDER},
+                            labels={
+                                "weekday": "Ugedag",
+                                "avg_timer_per_day": "Gns. varighed pr. dag (timer)",
+                                "license_plate": "Bil",
+                            },
+                            title="Gns. varighed pr. ugedag (stablet)",
+                        )
+                        fig_avg_dur_stacked.update_layout(barmode="stack")
+                        fig_avg_dur_stacked.update_yaxes(tickformat=",.2f")
+                        st.plotly_chart(fig_avg_dur_stacked, use_container_width=True)
+                    else:
+                        st.info("Ingen varighedskolonne i data (duration_hours mangler).")
+
             # Valgfri heatmap – når præcis én lokation er valgt
             if loc_sel and len(loc_sel) == 1 and not per_vehicle.empty:
                 top_sel = st.slider("Vis top N biler (efter ture)", min_value=5, max_value=50, value=20, step=5)
