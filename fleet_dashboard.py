@@ -24,10 +24,7 @@ Once the dependencies are installed, you can start the dashboard with:
 
    streamlit run fleet_dashboard.py
 
-Make sure the Excel files (``Køretøjer.xlsx``, ``Kørebog_fiktiv_raw.xlsx``,
-``Afdelinger.xlsx`` and ``sidste_to_måneder.xlsx``) are located in the
-same directory as this script or adjust the paths accordingly.  The
-dashboard will open in your web browser.  Since the Fleet Manager (FM)
+The dashboard will open in your web browser.  Since the Fleet Manager (FM)
 cannot install Python on his machine, you can run the dashboard yourself
 and share the results by exporting screenshots or by allowing FM to
 connect to the streamlit app over the network if possible.
