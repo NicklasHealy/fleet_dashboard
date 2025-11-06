@@ -460,6 +460,7 @@ def filter_data(
     vehicles: Optional[List[str]] = None,
     kilde: Optional[List[str]] = None,
     employees: Optional[List[str]] = None,
+    vehicles_type: Optional[List[str]] = None,
     start_date: Optional[datetime.date] = None,
     end_date: Optional[datetime.date] = None,
 ) -> pd.DataFrame:
@@ -499,6 +500,9 @@ def filter_data(
     
     if employees:
         mask &= df["employee"].isin(employees)
+
+    if vehicles_type:
+        mask &= df["vehicels_type"].isin(vehicles_type)
 
     if start_date:
         mask &= df["date"] >= start_date
@@ -595,7 +599,10 @@ def main():
         all_employees = sorted(
             [x for x in data["employee"].dropna().unique().tolist() if x]
         )
-
+        
+        all_vehicles_types = sorted(
+            [x for x in data["vehicels_type"].dropna().unique().tolist() if x]
+        )
 
         # Sidebar filters
         st.sidebar.header("Filtre")
@@ -613,6 +620,11 @@ def main():
         selected_employees = st.sidebar.multiselect(
             "Vælg medarbejdere", options=all_employees, default=[]
         )
+
+        selected_vehicles_type = st.sidebar.multiselect(
+            "Vælg køretøjstype", options=all_vehicles_types, default=[]
+        )
+
 
         
         data['date'] = pd.to_datetime(data['date'], errors='coerce')
@@ -643,6 +655,7 @@ def main():
             vehicles=selected_vehicles or None,
             kilde=selected_kilder or None,
             employees=selected_employees or None,
+            vehicles_type=selected_vehicles_type or None,
             start_date=start_date,
             end_date=end_date,
         )
