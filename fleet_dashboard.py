@@ -689,49 +689,9 @@ def main():
             unique_locations = overview["start_lokation"].nunique(dropna=True)
             total_km = overview["total_km"].sum()
             total_trips = overview["trips"].sum()
-            
-
-            # 1) Læs interval fra UI
-            selected_min, selected_max = date_range  # fra din st.sidebar.date_input
-
-            # 2) Sørg for, at "Dato" er datetime64 og normaliseret til dato (uden tid)
-            daily_util["Dato"] = pd.to_datetime(daily_util["Dato"]).dt.normalize()
-            daily_util = daily_util[daily_util["Timer_total"] > 0]
-
-            # 3) Filtrér data til valgt interval
-            mask = (daily_util["Dato"] >= pd.to_datetime(selected_min)) & (daily_util["Dato"] <= pd.to_datetime(selected_max))
-            daily_util_f = daily_util.loc[mask].copy()
-
-            # 4) Aggreger timer pr. dag
-            daily_util_agg = (
-                daily_util_f.groupby("Dato", dropna=False)
-                .agg(
-                    hours_total=("Timer_total", "sum"),
-                    hours_08_17=("Timer_08_17", "sum"),
-                )
-                .reset_index()
-            )
-
-            # 5) Lav en komplet kalender med alle datoer i intervallet
-            all_dates = pd.DataFrame({"Dato": pd.date_range(pd.to_datetime(selected_min), pd.to_datetime(selected_max), freq="D")})
-
-            # 6) Merge for at sikre alle datoer er med, og udfyld manglende med 0
-            daily_util_agg = (
-                all_dates.merge(daily_util_agg, on="Dato", how="left")
-                .fillna({"hours_total": 0.0, "hours_08_17": 0.0})
-            )
-
-            # 7) Beregn gennemsnit pr. køretøj (global variabel)
-            #    OBS: Tjek stavning – du brugte "NUMBERS_OF_VEHICELS". Brug "NUMBERS_OF_VEHICLES".
-            daily_util_agg["avg_hours_total"] = daily_util_agg["hours_total"] / daily_util['license_plate'].nunique()
-            daily_util_agg["avg_hours_08_17"] = daily_util_agg["hours_08_17"] / daily_util['license_plate'].nunique()
-
-            # 9) Udnyttelsesgrader (pr. køretøj)
-            #    Fordi "avg_hours_*" allerede er pr. bil, skal der KUN divideres med WORKDAY_HOURS.
-            daily_util_agg["udnyttelse_pct_08_17"] = (daily_util_agg["avg_hours_08_17"] / WORKDAY_HOURS).clip(upper=1.0) * 100.0
-
-            # Beregn gennemsnit og 7-dages glidende gennemsnit
-            gns_udnyttelse = daily_util_agg["udnyttelse_pct_08_17"].mean()
+            total_time = daily_util["Timer_08_17"].sum()
+            NUMBERS_OF_VEHICELS_KOMMUNE = filtered[filtered["kilde"] == "Kørebog"]["license_plate"].nunique()
+            gns_udnyttelse = total_time / (NUMBERS_OF_VEHICELS_KOMMUNE * num_workdays * WORKDAY_HOURS) * 100.0 if NUMBERS_OF_VEHICELS_KOMMUNE > 0 and num_workdays > 0 else 0.0
 
             c1, c2, c3, c4, c5 = st.columns(5)
             c1.metric("Antal køretøjer", f"{unique_vehicles:,}")
@@ -745,27 +705,29 @@ def main():
             st.subheader("")
             st.markdown(
                 """
-                I tabellen nedenfor vises nøgletal pr. lokation og køretøjstype.
+                I tabellen nedenfor vises antallet af køretøjer i køretøjstype.
                 """
             )
-            st.dataframe(
-                overview.rename(
-                    columns={
-                        "start_lokation": "Lokation",
-                        "vehicels_type": "Køretøjstype",
-                        "trips": "Ture",
-                        "total_km": "Kilometre",
-                        "total_duration": "Timer (total)",
-                        "unique_vehicles": "Antal biler",
-                        "avg_trips_per_day": "Ture/dag",
-                        "avg_km_per_day": "Km/dag",
-                        "utilisation": "Udnyttelsesgrad pr. bil (%)",
-                    }
-                ),
-                use_container_width=True,
-                hide_index=True,
-                column_config={'num_workdays': None},
-            )
+            c1,c2 = st.columns(2)
+            with c1:
+                st.markdown("**Antal antallet køretøjer pr. køretøjstype**")
+                veh_counts = (
+                    filtered.groupby("vehicels_type", dropna=False)
+                    .agg(unique_vehicles=("license_plate", "nunique"))
+                    .reset_index()
+                    .sort_values("unique_vehicles", ascending=False)
+                )
+                st.dataframe(
+                    veh_counts.rename(
+                        columns={
+                            "vehicels_type": "Køretøjstype",
+                            "unique_vehicles": "Antal unikke køretøjer",
+                        }
+                    ),
+                    use_container_width=True,
+                    hide_index=True,
+                )
+            
             # Chart: average trips per day by location and vehicle type
             if not overview.empty:
                 fig1 = px.bar(
