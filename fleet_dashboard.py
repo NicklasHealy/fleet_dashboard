@@ -1139,6 +1139,93 @@ def main():
                 )
 
                 
+
+                st.subheader("Ledighed (kapacitet) over dagen")
+                st.caption("Viser gennemsnitligt og minimalt antal ledige biler i halv-times intervaller mellem 07:00 og 17:30 for det valgte datointerval og filtre.")
+
+                # Arbejds-kopi, datotyper og datointerval
+                util_trips = filtered_util.copy()
+                util_trips[COLS["start"]] = pd.to_datetime(util_trips[COLS["start"]], errors="coerce")
+                util_trips[COLS["end"]] = pd.to_datetime(util_trips[COLS["end"]], errors="coerce")
+                util_trips = util_trips.dropna(subset=[COLS["start"], COLS["end"], COLS["reg"]]).copy()
+
+                # Rensning: start <= slut
+                mask_swap = util_trips[COLS["end"]] < util_trips[COLS["start"]]
+                if mask_swap.any():
+                    tmp = util_trips.loc[mask_swap, COLS["start"]].copy()
+                    util_trips.loc[mask_swap, COLS["start"]] = util_trips.loc[mask_swap, COLS["end"]]
+                    util_trips.loc[mask_swap, COLS["end"]] = tmp
+
+                # Dato-interval fra UI
+                dmin = pd.to_datetime(selected_min)
+                dmax = pd.to_datetime(selected_max)
+                if dmin > dmax:
+                    dmin, dmax = dmax, dmin
+
+                # Filtrer ture til overlappende med dato-interval (for performance)
+                util_trips = util_trips[(util_trips[COLS["end"]] >= dmin) & (util_trips[COLS["start"]] <= dmax + pd.Timedelta(days=1))]
+
+                # Biler i udvalget (flådestørrelse)
+                fleet_size = int(util_trips[COLS["reg"]].nunique())
+
+                # Tids-slots hver 30. minut fra 07:00 til og med 17:30
+                slot_start = datetime.combine(datetime.today().date(), time(8, 0))
+                slot_end = datetime.combine(datetime.today().date(), time(17, 0))
+                half_hour = timedelta(minutes=30)
+                slots = []
+                t = slot_start
+                while t <= slot_end:
+                    slots.append(t.time())
+                    t += half_hour
+
+                # Alle kalenderdage i intervallet
+                all_days = pd.date_range(dmin.normalize(), dmax.normalize(), freq="D")
+
+                # Optælling af ledige pr. dag og slot
+                rec = []
+                for day in all_days:
+                    for tt in slots:
+                        ws = datetime.combine(day.date(), tt)
+                        we = ws + half_hour
+                        # Aktiv hvis der er overlap mellem [start, end) og [ws, we)
+                        active = util_trips.loc[(util_trips[COLS["start"]] < we) & (util_trips[COLS["end"]] > ws), COLS["reg"]].nunique()
+                        ledige = max(0, fleet_size - int(active)) if fleet_size > 0 else 0
+                        rec.append({
+                            "slot": ws.strftime("%H:%M"),
+                            "ledige": ledige,
+                        })
+
+                if rec:
+                    df_ledig = pd.DataFrame.from_records(rec)
+                    cap = (
+                        df_ledig.groupby("slot", dropna=False)
+                        .agg(
+                            gennemsnit=("ledige", "mean"),
+                            minimum=("ledige", "min")
+                        )
+                        .reset_index()
+                        .sort_values("slot")
+                    )
+                    # Plot som grouped bars (som i eksemplet)
+                    fig_cap = px.bar(
+                        cap,
+                        x="slot",
+                        y=["gennemsnit", "minimum"],
+                        barmode="group",
+                        labels={
+                            "slot": "Tidspunkt",
+                            "value": "Antal ledige biler",
+                            "variable": "Metrik",
+                        },
+                        title="Ledighed (kapacitet) over dagen",
+                        color_discrete_map={"gennemsnit": "#636EFA", "minimum": "#FFA15A"},
+                    )
+                    fig_cap.update_layout(legend_title_text="")
+                    st.plotly_chart(fig_cap, use_container_width=True)
+                    st.caption(f"Beregnet på {fleet_size} biler i udvalget og {len(all_days)} kalenderdage.")
+                else:
+                    st.info("Ingen ture i perioden — kan ikke beregne ledighed.")
+
                 # Udnyttelsesgrad pr. køretøj
                 st.subheader("Udnyttelsesgrad pr. køretøj")
                         
