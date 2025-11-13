@@ -204,7 +204,7 @@ def compute_private_vs_municipal(df: pd.DataFrame) -> pd.DataFrame:
 
     Returns a DataFrame indexed by date, department and a boolean ``private``.
     """
-    df_personbil = df[df["vehicels_type"] == "alm. personbil (≤ 5 personer)"].copy()
+    df_personbil = df[df["vehicels_type"] == "alm. personbil (≤ 7 personer)"].copy()
 
     grouped = (
         df_personbil.groupby(["date", "start_lokation", "private"], dropna=False)
