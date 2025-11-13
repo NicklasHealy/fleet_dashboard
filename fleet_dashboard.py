@@ -740,6 +740,11 @@ def main():
                     use_container_width=True,
                     hide_index=True,
                 )
+            with c2:
+                st.markdown("**Ikke kategoriceret køretøjstype**")
+                missing_veh_type = filtered[filtered["vehicels_type"].isna()]
+                missing_veh_type = missing_veh_type[["license_plate", "start_lokation", "kilde"]].drop_duplicates().sort_values("license_plate")  
+                st.dataframe(missing_veh_type, use_container_width=True)
             
             # Chart: average trips per day by location and vehicle type
             if not overview.empty:
