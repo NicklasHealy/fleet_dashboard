@@ -855,104 +855,107 @@ def main():
                 "Denne fane viser, hvor mange ture og kilometre der er kørt i private biler" \
                 "sammenlignet med kommunale personbiler pr. dag og lokation."
             )
-            # Aggregate totals across all days for display
-            agg_private = private_vs.groupby(["start_lokation", "private"]).agg(
-                trips=("trips", "sum"), km=("km", "sum")
-            ).reset_index()
-            # Replace boolean with string for readability
-            agg_private["Biltype"] = agg_private["private"].map(
-                {True: "Privat", False: "Kommunal"}
-            )
-
-
-            st.dataframe(
-                agg_private.rename(columns={"start_lokation": "Lokation", "trips" : "Ture"})[
-                    ["Lokation", "Biltype", "Ture", "km"]
-                ],
-                use_container_width=True, hide_index=True
-            )
-
-
-            # Pie charts summarising private vs municipal usage
-            col1, col2 = st.columns(2, gap="medium")
-
-            color_map = {"Privat": "#636EFA", "Kommunal": "#EF553B"}
-            category_order = {"Biltype": ["Privat", "Kommunal"]}
-
-            total_trips = agg_private["trips"].sum()
-            if total_trips > 0:
-                fig3 = px.pie(
-                    agg_private,
-                    names="Biltype",
-                    values="trips",
-                    title="Andel af ture: privat vs kommunal",
-                    color="Biltype",
-                    color_discrete_map=color_map,
-                    category_orders=category_order,
+            if private_vs.empty:
+                st.info("Ingen data til rådighed for de valgte filtre.")
+            else:
+                # Aggregate totals across all days for display
+                agg_private = private_vs.groupby(["start_lokation", "private"]).agg(
+                    trips=("trips", "sum"), km=("km", "sum")
+                ).reset_index()
+                # Replace boolean with string for readability
+                agg_private["Biltype"] = agg_private["private"].map(
+                    {True: "Privat", False: "Kommunal"}
                 )
-                with col1:
-                    st.plotly_chart(fig3, use_container_width=True)
 
-            total_km = agg_private["km"].sum()
-            if total_km > 0:
-                fig4 = px.pie(
-                    agg_private,
-                    names="Biltype",
-                    values="km",
-                    title="Andel af kilometre: privat vs kommunal",
-                    color="Biltype",
-                    color_discrete_map=color_map,
-                    category_orders=category_order,
+
+                st.dataframe(
+                    agg_private.rename(columns={"start_lokation": "Lokation", "trips" : "Ture"})[
+                        ["Lokation", "Biltype", "Ture", "km"]
+                    ],
+                    use_container_width=True, hide_index=True
                 )
-                with col2:
-                    st.plotly_chart(fig4, use_container_width=True)
 
-            # 100%-stablet søjlediagram pr. lokation
-            if not agg_private.empty:
-                # Fjern lokationer med kun 1 tur (uanset biltype)
-                trips_per_loc = agg_private.groupby("start_lokation")["trips"].sum()
-                valid_locs = trips_per_loc[trips_per_loc > 1].index
-                agg_filtered = agg_private[agg_private["start_lokation"].isin(valid_locs)]
 
-                if not agg_filtered.empty:
-                    # Beregn andel pr. lokation
-                    pct_df = (
-                        agg_filtered.groupby("start_lokation")
-                        .apply(lambda g: g.assign(
-                            andel=g["trips"] / g["trips"].sum() * 100
-                        ))
-                        .reset_index(drop=True)
-                    )
+                # Pie charts summarising private vs municipal usage
+                col1, col2 = st.columns(2, gap="medium")
 
-                    # Tilføj tekstlabel med både procent og antal ture
-                    pct_df["label"] = pct_df.apply(
-                        lambda r: f"{r['andel']:.1f}% ({int(r['trips'])} ture)", axis=1
-                    )
+                color_map = {"Privat": "#636EFA", "Kommunal": "#EF553B"}
+                category_order = {"Biltype": ["Privat", "Kommunal"]}
 
-                    pct_df.sort_values(by=["start_lokation"], inplace=True)
-
-                    fig_pct = px.bar(
-                        pct_df,
-                        x="start_lokation",
-                        y="andel",
+                total_trips = agg_private["trips"].sum()
+                if total_trips > 0:
+                    fig3 = px.pie(
+                        agg_private,
+                        names="Biltype",
+                        values="trips",
+                        title="Andel af ture: privat vs kommunal",
                         color="Biltype",
-                        barmode="stack",
-                        text="label",  # bruger den nye labelkolonne
                         color_discrete_map=color_map,
                         category_orders=category_order,
-                        labels={
-                            "start_lokation": "Lokation",
-                            "andel": "Andel af ture (%)",
-                            "Biltype": "Biltype"
-                        },
-                        title="Andel af ture (Privat vs Kommunal) pr. lokation – 100 % stablet",
                     )
+                    with col1:
+                        st.plotly_chart(fig3, use_container_width=True)
 
-                    fig_pct.update_traces(textposition="inside", textfont_size=11)
-                    fig_pct.update_layout(yaxis=dict(range=[0, 100]))
-                    st.plotly_chart(fig_pct, use_container_width=True)
-                else:
-                    st.info("Ingen lokationer med mere end 1 tur at vise.")
+                total_km = agg_private["km"].sum()
+                if total_km > 0:
+                    fig4 = px.pie(
+                        agg_private,
+                        names="Biltype",
+                        values="km",
+                        title="Andel af kilometre: privat vs kommunal",
+                        color="Biltype",
+                        color_discrete_map=color_map,
+                        category_orders=category_order,
+                    )
+                    with col2:
+                        st.plotly_chart(fig4, use_container_width=True)
+
+                # 100%-stablet søjlediagram pr. lokation
+                if not agg_private.empty:
+                    # Fjern lokationer med kun 1 tur (uanset biltype)
+                    trips_per_loc = agg_private.groupby("start_lokation")["trips"].sum()
+                    valid_locs = trips_per_loc[trips_per_loc > 1].index
+                    agg_filtered = agg_private[agg_private["start_lokation"].isin(valid_locs)]
+
+                    if not agg_filtered.empty:
+                        # Beregn andel pr. lokation
+                        pct_df = (
+                            agg_filtered.groupby("start_lokation")
+                            .apply(lambda g: g.assign(
+                                andel=g["trips"] / g["trips"].sum() * 100
+                            ))
+                            .reset_index(drop=True)
+                        )
+
+                        # Tilføj tekstlabel med både procent og antal ture
+                        pct_df["label"] = pct_df.apply(
+                            lambda r: f"{r['andel']:.1f}% ({int(r['trips'])} ture)", axis=1
+                        )
+
+                        pct_df.sort_values(by=["start_lokation"], inplace=True)
+
+                        fig_pct = px.bar(
+                            pct_df,
+                            x="start_lokation",
+                            y="andel",
+                            color="Biltype",
+                            barmode="stack",
+                            text="label",  # bruger den nye labelkolonne
+                            color_discrete_map=color_map,
+                            category_orders=category_order,
+                            labels={
+                                "start_lokation": "Lokation",
+                                "andel": "Andel af ture (%)",
+                                "Biltype": "Biltype"
+                            },
+                            title="Andel af ture (Privat vs Kommunal) pr. lokation – 100 % stablet",
+                        )
+
+                        fig_pct.update_traces(textposition="inside", textfont_size=11)
+                        fig_pct.update_layout(yaxis=dict(range=[0, 100]))
+                        st.plotly_chart(fig_pct, use_container_width=True)
+                    else:
+                        st.info("Ingen lokationer med mere end 1 tur at vise.")
 
 
 
