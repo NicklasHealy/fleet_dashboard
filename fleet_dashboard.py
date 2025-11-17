@@ -1109,7 +1109,7 @@ def main():
                     .reset_index()
                 )
 
-                util_per_lokation["udnyttelse_pct_08_17"] = (util_per_lokation["total_hours_08_17"] / (num_workdays * WORKDAY_HOURS)).clip(upper=1.0) * 100.0
+                util_per_lokation["udnyttelse_pct_08_17"] = (util_per_lokation["total_hours_08_17"] / (num_workdays * WORKDAY_HOURS * util_per_lokation["total_vehicles"])).clip(upper=1.0) * 100.0
 
                 # Søjlediagram: Udnyttelsesgrad pr. lokation (08-17)
                 if not util_per_lokation.empty:
