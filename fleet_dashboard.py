@@ -1161,7 +1161,7 @@ def main():
                 
 
                 st.subheader("Ledighed (kapacitet) over dagen")
-                st.caption("Viser gennemsnitligt og minimalt antal ledige biler i halv-times intervaller mellem 07:00 og 17:30 for det valgte datointerval og filtre.")
+                st.caption("Viser gennemsnitligt og minimalt antal ledige biler i halv-times intervaller mellem 00:00 og 23:30 for det valgte datointerval og filtre.")
 
                 # Arbejds-kopi, datotyper og datointerval
                 util_trips = filtered_util.copy()
@@ -1189,8 +1189,8 @@ def main():
                 fleet_size = int(util_trips[COLS["reg"]].nunique())
 
                 # Tids-slots hver 30. minut fra 07:00 til og med 17:30
-                slot_start = datetime.combine(datetime.today().date(), time(8, 0))
-                slot_end = datetime.combine(datetime.today().date(), time(17, 0))
+                slot_start = datetime.combine(datetime.today().date(), time(0, 0))
+                slot_end = datetime.combine(datetime.today().date(), time(23, 30))
                 half_hour = timedelta(minutes=30)
                 slots = []
                 t = slot_start
