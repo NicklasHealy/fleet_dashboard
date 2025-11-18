@@ -975,6 +975,8 @@ def main():
                 st.info("Ingen registrerede ture i privat bil for de valgte filtre.")
             else:
                 
+                emp_private = emp_private.sort_values("km", ascending=False)
+
                 st.expander("Se rå data for kørsel i egen bil", expanded=False).dataframe(
                     emp_private.rename(columns={
                         "employee": "Medarbejder",
