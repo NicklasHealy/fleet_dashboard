@@ -626,7 +626,7 @@ def main():
         )
 
 
-        data["employee_id"] = data["employee"].astype("category").cat.codes
+        data["employee"] = data["employee"].astype("category").cat.codes
 
         data['date'] = pd.to_datetime(data['date'], errors='coerce')
         num_workdays = data.loc[data["date"].dt.weekday < 5, "date"].nunique()
