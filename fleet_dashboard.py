@@ -860,19 +860,25 @@ def main():
             else:
                 # Aggregate totals across all days for display
                 agg_private = private_vs.groupby(["start_lokation", "private"]).agg(
-                    trips=("trips", "sum"), km=("km", "sum")
+                    trips=("trips", "sum"),
+                    km=("km", "sum"),
                 ).reset_index()
+
                 # Replace boolean with string for readability
                 agg_private["Biltype"] = agg_private["private"].map(
                     {True: "Privat", False: "Kommunal"}
                 )
 
-
-                st.dataframe(
-                    agg_private.rename(columns={"start_lokation": "Lokation", "trips" : "Ture"})[
-                        ["Lokation", "Biltype", "Ture", "km"]
-                    ],
-                    use_container_width=True, hide_index=True
+                # Rå data
+                st.expander("Se rå data for private vs kommunal", expanded=False).dataframe(
+                    agg_private.rename(
+                        columns={
+                            "start_lokation": "Lokation",
+                            "trips": "Ture",
+                        }
+                    )[["Lokation", "Biltype", "Ture", "km"]],
+                    use_container_width=True,
+                    hide_index=True,
                 )
 
 
