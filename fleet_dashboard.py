@@ -973,7 +973,8 @@ def main():
             if emp_private.empty:
                 st.info("Ingen registrerede ture i privat bil for de valgte filtre.")
             else:
-                st.dataframe(
+                
+                st.expander("Se rå data for kørsel i egen bil", expanded=False).dataframe(
                     emp_private.rename(columns={
                         "employee": "Medarbejder",
                         "trips": "Ture",
@@ -982,6 +983,8 @@ def main():
                     }),
                     use_container_width=True,
                 )
+
+                
                 fig5 = px.bar(
                     emp_private,
                     x="employee",
